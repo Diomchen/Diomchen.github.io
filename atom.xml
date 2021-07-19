@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://Diomchen.github.io</id>
     <title>DiomChen&apos;s Blog</title>
-    <updated>2021-07-19T11:32:23.534Z</updated>
+    <updated>2021-07-19T11:34:17.275Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://Diomchen.github.io"/>
     <link rel="self" href="https://Diomchen.github.io/atom.xml"/>
@@ -10,6 +10,277 @@
     <logo>https://Diomchen.github.io/images/avatar.png</logo>
     <icon>https://Diomchen.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, DiomChen&apos;s Blog</rights>
+    <entry>
+        <title type="html"><![CDATA[🌍neo4j]]></title>
+        <id>https://Diomchen.github.io/post/neo4j/</id>
+        <link href="https://Diomchen.github.io/post/neo4j/">
+        </link>
+        <updated>2021-07-19T11:33:40.000Z</updated>
+        <content type="html"><![CDATA[<blockquote>
+<p>高性能NoSql图形数据库</p>
+</blockquote>
+<h2 id="环境要求">环境要求</h2>
+<figure data-type="image" tabindex="1"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210708104701348.png" alt="" loading="lazy"></figure>
+<figure data-type="image" tabindex="2"><img src="https://img-blog.csdnimg.cn/20200829111337351.png" alt="" loading="lazy"></figure>
+<h2 id="基本定义">基本定义</h2>
+<h3 id="1图像数据结构">1.图像数据结构</h3>
+<p>Nodes（节点）</p>
+<p>Relationships（关系）</p>
+<h2 id="docker安装部署">🐋docker安装部署</h2>
+<p>拉取最新的neo4j镜像</p>
+<p>docker pull neo4j</p>
+<p>运行Neo4j 容器</p>
+<p>docker run -it -d -p 7474:7474 -p 7687:7687 neo4j:latest</p>
+<p>打开Neo4j 浏览器管理界面</p>
+<p>http://localhost:7474</p>
+<p>设置data和import</p>
+<p>data用于数据存放</p>
+<p>import用于导入数据（csv文件）</p>
+<pre><code class="language-bash">docker run -it -d -p 7474:7474 -p 7687:7687 neo4j -v /home/user/Desktop/import:/var/lib/neo4j/import -v /home/user/Desktop/data:/data
+</code></pre>
+<h2 id="服务器部署">🖥服务器部署</h2>
+<ol>
+<li>首先是下载解压 community版本</li>
+<li>更改 /conf/neo4j.conf文件</li>
+</ol>
+<pre><code class="language-shell"># With default configuration Neo4j only accepts local connections.
+# To accept non-local connections, uncomment this line:
+#特别注意：默认是注释的，不开启，外网不能访问web端口neo4j
+dbms.default_listen_address=0.0.0.0
+
+# You can also choose a specific network interface, and configure a non-default
+# port for each connector, by setting their individual listen_address.
+
+# The address at which this server can be reached by its clients. This may be the server's IP address or DNS name, or
+# it may be the address of a reverse proxy which sits in front of the server. This setting may be overridden for
+# individual connectors below.
+#dbms.default_advertised_address=localhost
+
+# You can also choose a specific advertised hostname or IP address, and
+# configure an advertised port for each connector, by setting their
+# individual advertised_address.
+
+# By default, encryption is turned off.
+# To turn on encryption, an ssl policy for the connector needs to be configured
+# Read more in SSL policy section in this file for how to define a SSL policy.
+
+# Bolt connector
+dbms.connector.bolt.enabled=true
+#dbms.connector.bolt.tls_level=DISABLED
+dbms.connector.bolt.listen_address=0.0.0.0:7687
+#dbms.connector.bolt.advertised_address=:7687
+
+# HTTP Connector. There can be zero or one HTTP connectors.
+dbms.connector.http.enabled=true
+dbms.connector.http.listen_address=0.0.0.0:7474
+#dbms.connector.http.advertised_address=:7474
+
+# HTTPS Connector. There can be zero or one HTTPS connectors.
+dbms.connector.https.enabled=false
+dbms.connector.https.listen_address=0.0.0.0:7473
+#dbms.connector.https.advertised_address=:7473
+</code></pre>
+<ol start="3">
+<li>启动neo4j</li>
+</ol>
+<pre><code class="language-bash">./bin/neo4j
+</code></pre>
+<blockquote>
+<p>参考资料</p>
+<p><a href="https://blog.csdn.net/mathew_leung/article/details/101838350">centos7 服务器安装neo4j并实现远程访问</a></p>
+</blockquote>
+<h2 id="quickstart">💨QuickStart</h2>
+<h3 id="单个操作的流程纯手动连接">单个操作的流程（纯手动连接）</h3>
+<pre><code class="language-java">//设置driver
+Driver driver = GraphDatabase.driver(&quot;bolt://192.168.216.131:7687&quot;, AuthTokens.basic(&quot;neo4j&quot;, &quot;123456&quot; ));
+
+//打开session
+Session session = driver.session();
+
+//执行语句
+String cql = &quot;create (n:Person{name:$name,title:$title})&quot;;
+            String insert_test_str = session.writeTransaction(new TransactionWork&lt;String&gt;() {
+                @Override
+                public String execute(Transaction tx) {
+                    Result result = tx.run(cql,parameters(&quot;name&quot;,&quot;diomchen&quot;,&quot;title&quot;,&quot;The Code Hero&quot;));
+                    return &quot;Create Node OK!&quot;;
+                }
+            });
+
+//关闭session
+session.close();
+
+//关闭driver
+driver.close();
+</code></pre>
+<figure data-type="image" tabindex="3"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210708141036413.png" alt="" loading="lazy"></figure>
+<h3 id="单个操作的流程整合springboot">单个操作的流程（整合Springboot）</h3>
+<pre><code class="language-yml">#首先是数据库的配置
+    neo4j:
+      uri: bolt://&lt;host&gt;:7687
+      username: neo4j
+      password: 123456
+</code></pre>
+<p><strong>mongo数据库对象</strong></p>
+<pre><code class="language-java">@Data
+@Document(collection = &quot;addresstxs&quot;)
+public class Addresstxs {
+    @Id
+    private String id;
+
+    @Field(&quot;address&quot;)
+    private String address;
+    @Field(&quot;height&quot;)
+    private Integer height;
+    @Field(&quot;index&quot;)
+    private Integer index;
+    @Field(&quot;txid&quot;)
+    private String txid;
+    @Field(&quot;type&quot;)
+    private Integer type;
+
+}
+</code></pre>
+<p><strong>neo4j数据库对象</strong></p>
+<pre><code class="language-java">@Data
+@Node(labels = {&quot;Addresstxs&quot;})
+public class NAddresstxs {
+//    //自动生成id
+//    @Id @GeneratedValue
+//    private Long id;
+
+    //交易地址表Id
+    @Id
+    private String addresstxsId;
+
+    //交易地址
+    @Property(name =&quot;address&quot;)
+    private String address;
+
+    @Property(name=&quot;height&quot;)
+    private Integer height;
+
+    @Property(name=&quot;index&quot;)
+    private Integer index;
+
+    @Property(name=&quot;txid&quot;)
+    private String txid;
+
+
+    //交易类型：1.输入交易 2.输出交易 3.同一交易
+    @Property(name = &quot;type&quot;)
+    private Integer type;
+
+
+
+
+}
+
+</code></pre>
+<p><strong>Dao层</strong></p>
+<pre><code class="language-java">@Repository
+public interface AddresstxsRepository extends Neo4jRepository&lt;NAddresstxs,String&gt; {
+
+    @Query(&quot;create (n:Addresstxs{ addresstxsId:$addresstxsId , address:$address , type:$type}) return n&quot;)
+    List&lt;NAddresstxs&gt; addAddresstxs(@Param(&quot;addresstxsId&quot;) String addresstxsId, @Param(&quot;address&quot;) String address, @Param(&quot;type&quot;) Integer type);
+
+    @Query(&quot;match (n) return n&quot;)
+    List&lt;NAddresstxs&gt; getAddresstxs();
+    /*
+    	特别需要注意返回的类型，否则会报以下问题
+    */
+
+
+}
+</code></pre>
+<p><mark>解决办法：看看返回类型是否和 Neo4j Node 节点一致</mark></p>
+<p><strong>Service层</strong></p>
+<pre><code class="language-java">public interface AddresstxsService {    //创建Addresstxs节点    int createAddresstxsNode(Addresstxs addresstxs);    //getAddresstxs    List&lt;NAddresstxs&gt; getAddr();}@Service@Transactionalpublic class AddresstxsServiceImpl implements AddresstxsService{    @Resource    private AddresstxsRepository addresstxsRepository;    	......}
+</code></pre>
+<p><mark>neo4j 3.x 和 4.x 版本存在较大不同</mark></p>
+<pre><code class="language-java">//java中cql(3.x)String cql = &quot;create (n:Person{name:{name},title:{title}})&quot;;//java中cql(4.x)String cql = &quot;create (n:Person{name:$name,title:$title})&quot;;    
+</code></pre>
+<h2 id="关于数据处理成可导入csv相关规范">关于数据处理成可导入csv相关规范</h2>
+<blockquote>
+<ul>
+<li>一个数据集必须包含 node 和 relationship</li>
+<li>每个文件头行都必须描述数据</li>
+<li>即使是大规模数据，也尽可能将数据集分成多个文件</li>
+<li>可为node定义label，键入关系作为可选参数</li>
+</ul>
+</blockquote>
+<p><strong>对于relationships，需要遵循下列三条规则</strong></p>
+<ul>
+<li>START_ID</li>
+<li>END_ID</li>
+<li>TYPE</li>
+</ul>
+<blockquote>
+<p>参考资料：</p>
+<p><a href="https://neo4j.com/docs/operations-manual/current/tutorial/neo4j-admin-import/">Neo4j Admin import</a></p>
+</blockquote>
+<pre><code class="language-bash">bin/neo4j-admin import --id-type=STRING --nodes import/executive.csv --nodes import/stock.csv --nodes import/concept.csv --nodes import/industry.csv --relationships import/executive_stock.csv --relationships import/stock_industry.csv --relationships import/stock_concept.csv
+</code></pre>
+<h2 id="导入工具比较">导入工具比较</h2>
+<figure data-type="image" tabindex="4"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210710145416951.png" alt="" loading="lazy"></figure>
+<blockquote>
+<p>参考资料：</p>
+<p><a href="https://weikeqin.com/2017/04/14/neo4j-import-data/">关于neo4j导入数据工具比较 (注意：文章版本可能较老，对于新版本存在不适用的地方) </a></p>
+</blockquote>
+<h2 id="load-csv使用">LOAD CSV使用</h2>
+<pre><code class="language-CQL">:auto using periodic commit 200 load csv from &quot;file:///t.csv&quot; as linecreate (n:TA{id:line[0],address:line[1],height:line[2],index:line[3],txid:line[4],type:line[5]})//with HEADERS 可以避免读入header//但是不能使用 :auto using periodic commit 200 
+</code></pre>
+<blockquote>
+<p>注意事项:</p>
+<ul>
+<li>解决办法：在COMMOND前面加上:auto （一般使用<strong>using periodic commit</strong>会出现）</li>
+</ul>
+<figure data-type="image" tabindex="5"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210713174622970.png" alt="image-20210713174622970" loading="lazy"></figure>
+<ul>
+<li>解决办法：将需要导入的csv文件上传至**/neo4j-xx.x/import**目录下面</li>
+</ul>
+<figure data-type="image" tabindex="6"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210713174807411.png" alt="image-20210713174807411" loading="lazy"></figure>
+</blockquote>
+<h2 id="apoc加载json数据">apoc加载json数据</h2>
+<pre><code class="language-cql">call apoc.load.json(&quot;file:///txt.json&quot;) yield valuemerge (n:TA{txid:value.txid})on create set n.height = value.height
+</code></pre>
+<p>merge 会查找是否存在该属性节点，没有则创建</p>
+<blockquote>
+<p>参考链接：</p>
+<p><a href="https://neo4j.com/labs/apoc/4.1/overview/apoc.load/apoc.load.json/">apoc文档-apoc.load.json</a></p>
+</blockquote>
+<h2 id="cypher语言">Cypher语言</h2>
+<pre><code class="language-CQL">#创建节点create (a:person{name:&quot;&quot;,age:&quot;&quot;,gender:&quot;&quot; ... like:&quot;&quot;)#建立关系match (a:Person),(b:Person) where a.like=&quot;football&quot; and b.like=&quot;tennis&quot; create (a)-[r:LOVE]-&gt;(b)#
+</code></pre>
+<blockquote>
+<p>参考资料</p>
+<p><a href="https://neo4j.com/docs/cypher-refcard/current/">官方操作一览</a></p>
+</blockquote>
+<h2 id="neo4j小细节">Neo4j小细节</h2>
+<h3 id="neo4j节点不显示问题">neo4j节点不显示问题</h3>
+<figure data-type="image" tabindex="7"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210714112202613.png" alt="" loading="lazy"></figure>
+<blockquote>
+<p>参考链接：</p>
+<p><a href="http://neo4j.com.cn/topic/5c6f80c3cd4dafa110f1cf92">neo4j的可视化界面显示id不显示name?</a></p>
+</blockquote>
+<h3 id="关于导入导出的问题">关于导入导出的问题</h3>
+<p><strong>一般采用apoc的loadCsv函数或者自带的LOAD CSV，对于其他开源插件一般不考虑，因为基本没人维护</strong></p>
+<figure data-type="image" tabindex="8"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210714134428565.png" alt="image-20210714134428565" loading="lazy"></figure>
+<blockquote>
+<p>参考链接:</p>
+<p><a href="https://github.com/jexp/neo4j-shell-tools/issues/23">github_issue_export_csv</a></p>
+</blockquote>
+<h2 id="开发感受">🎈开发感受</h2>
+<ol>
+<li>在springboot框架中运用有两种,一个是自写query语句，另一个就是使用Neo4jTemplate</li>
+<li>在导入大量数据的时候，导入csv肯定是最简单和最快的，json也行。网上开源的neo4j插件基本无人维护，都是几年前的版本，不推荐使用。</li>
+<li>apoc是neo4j里面最主流的插件，灵活好用</li>
+<li></li>
+</ol>
+<p><a href="https://zhuanlan.zhihu.com/p/126219777">neo4j可视化</a></p>
+<p><a href="neo4j.com.cn/topic/59b7aea3ae1b13da5cba6d7c">Neo4j 可视化 ，自定义可视化方案</a></p>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[🥭mongodb学习]]></title>
         <id>https://Diomchen.github.io/post/mongodb-xue-xi/</id>
