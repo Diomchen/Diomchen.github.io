@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://Diomchen.github.io</id>
     <title>DiomChen&apos;s Blog</title>
-    <updated>2021-07-19T11:27:16.083Z</updated>
+    <updated>2021-07-19T11:28:58.860Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://Diomchen.github.io"/>
     <link rel="self" href="https://Diomchen.github.io/atom.xml"/>
@@ -10,6 +10,162 @@
     <logo>https://Diomchen.github.io/images/avatar.png</logo>
     <icon>https://Diomchen.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, DiomChen&apos;s Blog</rights>
+    <entry>
+        <title type="html"><![CDATA[🥭mongodb学习]]></title>
+        <id>https://Diomchen.github.io/post/mongodb-xue-xi/</id>
+        <link href="https://Diomchen.github.io/post/mongodb-xue-xi/">
+        </link>
+        <updated>2021-07-19T11:28:27.000Z</updated>
+        <content type="html"><![CDATA[<h2 id="docker中挂载mongodb">docker中挂载mongodb</h2>
+<pre><code class="language-bash">docker run -p 27017:27017 -v /data/mongo:/data/db --name mongodb -d mongo
+</code></pre>
+<p>特别注意：挂载的/data/db目录必须要有，并确保该目录有<strong>写</strong>权</p>
+<pre><code class="language-bash">mkdir -p /data/p
+</code></pre>
+<h2 id="quick-start">💨Quick Start</h2>
+<h3 id="数据库操作">数据库操作</h3>
+<pre><code class="language-bash"># 查看当前指向数据库
+db
+
+# CRUD
+##  插入(MAX_SIZE = 48MBp)
+db.good.insert(&lt;文档&gt;)
+### 若想插入多条数据？（插入集合）
+post1 = {&quot;title&quot;:&quot;blog1&quot;,&quot;date&quot;:new Date()}
+post2 = {&quot;title&quot;:&quot;blog2&quot;,&quot;date&quot;:new Date()}
+post3 = {&quot;title&quot;:&quot;blog3&quot;,&quot;date&quot;:new Date()}
+db.good.insert([
+post1,post2,post3
+])
+
+## 查询
+### 查一个
+db.good.findOne()
+### find会显示至多20条数据
+
+## 更新
+### 增加字段（增加评论字段）
+post.comments = []
+### 更新数据
+db.good.update({title:&quot;my blog update&quot;},post)
+
+## 删除
+db.good.remove({title:&quot;my blog update&quot;})
+
+</code></pre>
+<h3 id="java开发中使用">Java开发中使用</h3>
+<pre><code class="language-java">/*
+* 对于mongodb-java-driver 3.7 以下的版本适用
+*/
+
+/**********************无验证版本**********************/
+// new一个mongoClient
+MongoClient mongoClient = new MongoClient(&quot;&lt;host&gt;&quot;,&lt;port&gt;);
+
+//获取mongo数据库
+MongoDatabase mongoDatabase = mongoClient.getDatabase(&quot;&lt;database_name&gt;&quot;);
+
+/**********************有验证版本**********************/
+ServerAddress serverAddress = new ServerAddress(&quot;&lt;host&gt;&quot;,27017);
+List&lt;ServerAddress&gt; addressList = new ArrayList&lt;&gt;();
+addressList.add(serverAddress);
+
+//mongo验证
+MongoCredential credential = MongoCredential.createScramSha1Credential(&quot;username&quot;,&quot;databaseName&quot;,&quot;password&quot;.toCharArray());
+
+List&lt;MongoCredential&gt; credentials = new ArrayList&lt;&gt;();
+
+credentials.add(credential);
+
+MongoClient mongoClient = new MongoClient(addressList,credentials);
+
+MongoDatabase mongoDatabase = mongoClient.getDatabase(&quot;databaseName&quot;);
+System.out.println(&quot;Connect successfully&quot;);
+
+/*
+* 对于mongodb-java-driver 3.7 以上的版本适用
+* 仅仅是这两处的不同
+*/
+
+// 连接到 mongodb 服务
+mongoClient = MongoClients.create(
+    MongoClientSettings.builder()
+    .applyToClusterSettings(builder -&gt;
+                            builder.hosts(Arrays.asList(new ServerAddress(&quot;192.168.216.131&quot;))))
+    .build());
+
+// 连接到数据库
+mongoDatabase = mongoClient.getDatabase(&quot;testdb&quot;);
+
+</code></pre>
+<blockquote>
+<p>Tips:</p>
+<p><strong><s>对于mongo3.7以上的版本，java中对mongo的API完全不同</s></strong></p>
+<p><s>若是对 3.7 以上的版本采用新API，那么就会报nullpoint错误</s></p>
+<p>主要是要区分 com.mongodb.MongoClient(类) 和  com.mongodb.client.MongoClient 是接口。</p>
+<p><strong>报 because there was a socket exception raised by this connection. 错误是因为数据量太大，读不出来</strong></p>
+<p><strong>还有可能就是未授权yml配置需要采用 authentication-database: admin 进行授权</strong></p>
+<figure data-type="image" tabindex="1"><img src="C:%5CUsers%5Cthgy%5CAppData%5CRoaming%5CTypora%5Ctypora-user-images%5Cimage-20210709151856862.png" alt="" loading="lazy"></figure>
+</blockquote>
+<blockquote>
+<p>参考资料：</p>
+<p><a href="http://mongodb.github.io/mongo-java-driver/4.2/driver/getting-started/quick-start/">mongoDB JVM Drivers（4.2）文档</a></p>
+<p><a href="http://mongodb.github.io/mongo-java-driver/3.9/javadoc/?com/mongodb/client/MongoClient.html">mongo-java-API文档</a></p>
+<p><a href="https://blog.csdn.net/u011466470/article/details/84673761">关于 socket exception rised 错误</a></p>
+<p><a href="https://www.bilibili.com/video/BV1264y1v77R?p=24">采用 authentication-database: admin 进行授权问题( 视频 )</a></p>
+</blockquote>
+<h3 id="mongo索引查询">mongo索引查询</h3>
+<pre><code class="language-java">    /**
+     * @title getTxByAddress
+     * @description 通过地址找交易
+     * @author DiomChen
+     * @updateTime 2021/7/12 17:55
+     * @throws
+     * @测试数据：
+     *      17yYyafrfiaaVJGcaeQdpAeHdcBQSKAuLD
+     */
+    @Test
+    public void getTxByAddress(){
+        Query query = new Query(Criteria
+                .where(&quot;address&quot;).is(&quot;17yYyafrfiaaVJGcaeQdpAeHdcBQSKAuLD&quot;));
+        List&lt;Addresstxs&gt; addresstxsList = mongoTemplate.find(query,Addresstxs.class);
+        String txid = addresstxsList.get(0).getTxid();
+        Query query1 = new Query(Criteria
+        .where(&quot;txid&quot;).is(txid));
+        System.out.println(mongoTemplate.find(query1,Transactions.class));
+    }
+</code></pre>
+<h4 id="无索引">无索引</h4>
+<figure data-type="image" tabindex="2"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210712185013822.png" alt="image-20210712185013822" loading="lazy"></figure>
+<h4 id="以address建立索引">以address建立索引</h4>
+<figure data-type="image" tabindex="3"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210712191003692.png" alt="image-20210712191003692" loading="lazy"></figure>
+<blockquote>
+<p>参考链接：</p>
+<p><a href="https://blog.csdn.net/weixin_41127890/article/details/105536297">SpringBoot2使用mongoTemplate创建集合并添加索引</a></p>
+<p><a href="https://www.cnblogs.com/williamjie/p/9297670.html">MongoDB索引管理－索引的创建、查看、删除</a></p>
+<p><a href="https://www.cnblogs.com/dataoblogs/p/14121911.html">在MongoDB中执行查询与创建索引</a></p>
+</blockquote>
+<h2 id="基本内容">基本内容</h2>
+<ul>
+<li>文档：对应关系型数据库中的行，但是内部有顺序</li>
+<li>集合：对应关系型数据库中的表，是有多个文档组成，对于文档内部不关心（动态模式）</li>
+</ul>
+<h2 id="数据类型">数据类型</h2>
+<ul>
+<li>null ：{&quot;x&quot; : null}</li>
+<li>布尔：{&quot;x&quot; : false}</li>
+<li>数值：{&quot;x&quot;:3}</li>
+<li>字符串：{&quot;x&quot;:&quot;str&quot;}</li>
+<li>日期：{&quot;x&quot;:new Date()}</li>
+<li>正则表达式：{&quot;x&quot;:/foobar/i}</li>
+<li>数组：{&quot;x&quot;:[&quot;a&quot;,&quot;b&quot;,&quot;c&quot;]}</li>
+<li>内嵌文档：{&quot;x&quot;:{&quot;foo&quot;,&quot;bar&quot;}}</li>
+<li>对象id：{&quot;x&quot;:ObjectId()}</li>
+<li>二进制数据：{&quot;x&quot;:}</li>
+<li>代码：{&quot;x&quot;:function(){/*     */}}</li>
+</ul>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[🧶neo4j文档整理]]></title>
         <id>https://Diomchen.github.io/post/neo4j-wen-dang-zheng-li/</id>

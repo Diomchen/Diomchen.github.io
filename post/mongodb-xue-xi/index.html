@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-<link rel="shortcut icon" href="https://Diomchen.github.io/favicon.ico" type="image/x-icon" /><meta name="viewport"content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"/><meta name="apple-mobile-web-app-capable"content="yes"/><meta name="apple-mobile-web-app-status-bar-style"content="black"/><meta name="format-detection"content="telephone=no"/><meta name="renderer"content="webkit"><meta name="description"content="忙趁东风放纸鸢。"><meta charset="UTF-8"><title>Hello Gridea | DiomChen&#39;s Blog</title>
+<link rel="shortcut icon" href="https://Diomchen.github.io/favicon.ico" type="image/x-icon" /><meta name="viewport"content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"/><meta name="apple-mobile-web-app-capable"content="yes"/><meta name="apple-mobile-web-app-status-bar-style"content="black"/><meta name="format-detection"content="telephone=no"/><meta name="renderer"content="webkit"><meta name="description"content="忙趁东风放纸鸢。"><meta charset="UTF-8"><title>🥭mongodb学习 | DiomChen&#39;s Blog</title>
 <link href="https://Diomchen.github.io/styles/main.css" type="text/css" rel="stylesheet" /><link href="https://at.alicdn.com/t/font_1621793_zatzzgvf30g.css" type="text/css" rel="stylesheet" /><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.12.0/dist/katex.css"><script async src="https://cdn.jsdelivr.net/npm/busuanzi@2.3.0/bsz.pure.mini.min.js"></script><script src="https://Diomchen.github.io/media/js/magnify.min.js"></script><script defer src="https://cdn.jsdelivr.net/npm/katex@0.12.0/dist/katex.min.js"></script>
 <script type="text/javascript">function btn_toggle(){document.getElementById("hn").classList.contains("no-js")?document.getElementById("hn").classList.remove("no-js"):document.getElementById("hn").classList.add("no-js")}</script>
 
-<link rel="canonical" href="https://Diomchen.github.io/post/hello-gridea/" />
+<link rel="canonical" href="https://Diomchen.github.io/post/mongodb-xue-xi/" />
 </head>
 <body>
 <div class="progress"></div><style>.progress{background:linear-gradient(to right,#87ceeb var(--scroll),transparent 0);background-repeat:no-repeat;position:fixed;width:100%;height:4px;z-index:1}</style><div class="darkmode-background"></div><div class="darkmode-layer"></div>
@@ -23,37 +23,162 @@
 
 <div class="main"><div class="main-inner"><div class="content">
 <article class="post">
-<h2 class="post_title sm_margin"><a>Hello Gridea</a></h2>
+<h2 class="post_title sm_margin"><a>🥭mongodb学习</a></h2>
 <script>function lan(){if(document.getElementById("lan").innerText=="繁"){var s=document.getElementById("tongwenlet_cn");if(s!=null){document.body.removeChild(s)}var s=document.createElement("script");s.language="javascript";s.type="text/javascript";s.src="https://cdn.jsdelivr.net/gh/qyxtim/Static@1.1/bookmarklet_tw.js";s.id="tongwenlet_cn";document.body.appendChild(s);document.getElementById("lan").innerHTML="简"}else{if(document.getElementById("lan").innerText=="簡"){var s=document.getElementById("tongwenlet_cn");if(s!=null){document.body.removeChild(s)}var s=document.createElement("script");s.language="javascript";s.type="text/javascript";s.src="https://cdn.jsdelivr.net/gh/qyxtim/Static@1.1/bookmarklet_cn.js";s.id="tongwenlet_cn";document.body.appendChild(s);document.getElementById("lan").innerHTML="繁"}}};</script>
-<section class="post_details"><i class="iconfont icon-calendar"></i><span style="margin-right:15px"> 2018-12-12</span><i class="iconfont icon-browse"></i><span style="margin-right:15px"> <span id="busuanzi_value_page_pv"></span> Views</span><i class="iconfont icon-category"></i><span class="weaklink" style="margin-right:15px">	<a href="https://Diomchen.github.io/tag/SrjttTdFT/" class="tag">Gridea</a></span><i class="iconfont icon-caret-down"></i><span style="margin-right:15px">298字</span><i class="iconfont icon-naozhong"></i><span style="margin-right:15px">2 min read</span><a id="lan" href="javascript:void(0);"onclick="lan();"title="调整简繁体" style="margin-right:15px;">繁</a>
+<section class="post_details"><i class="iconfont icon-calendar"></i><span style="margin-right:15px"> 2021-07-19</span><i class="iconfont icon-browse"></i><span style="margin-right:15px"> <span id="busuanzi_value_page_pv"></span> Views</span><i class="iconfont icon-category"></i><span class="weaklink" style="margin-right:15px"></span><i class="iconfont icon-caret-down"></i><span style="margin-right:15px">805字</span><i class="iconfont icon-naozhong"></i><span style="margin-right:15px">4 min read</span><a id="lan" href="javascript:void(0);"onclick="lan();"title="调整简繁体" style="margin-right:15px;">繁</a>
 </section>
-
-<img class="featureImg" alt="featureimg" src="https://Diomchen.github.io/post-images/hello-gridea.png" referrerpolicy="no-referrer">
 
 <div style="display:flex">
 <div class="md_block" id="md_block">
 <div class="round-shape-one"></div>
-<p>👏  欢迎使用 <strong>Gridea</strong> ！<br>
-✍️  <strong>Gridea</strong> 一个静态博客写作客户端。你可以用它来记录你的生活、心情、知识、笔记、创意... ...</p>
-<!-- more -->
-<p><a href="https://github.com/getgridea/gridea">Github</a><br>
-<a href="https://gridea.dev/">Gridea 主页</a><br>
-<a href="http://fehey.com/">示例网站</a></p>
-<h2 id="特性">特性👇</h2>
-<p>📝  你可以使用最酷的 <strong>Markdown</strong> 语法，进行快速创作</p>
-<p>🌉  你可以给文章配上精美的封面图和在文章任意位置插入图片</p>
-<p>🏷️  你可以对文章进行标签分组</p>
-<p>📋  你可以自定义菜单，甚至可以创建外部链接菜单</p>
-<p>💻  你可以在 <strong>Windows</strong>，<strong>MacOS</strong> 或 <strong>Linux</strong> 设备上使用此客户端</p>
-<p>🌎  你可以使用 <strong>𝖦𝗂𝗍𝗁𝗎𝖻 𝖯𝖺𝗀𝖾𝗌</strong> 或 <strong>Coding Pages</strong> 向世界展示，未来将支持更多平台</p>
-<p>💬  你可以进行简单的配置，接入 <a href="https://github.com/gitalk/gitalk">Gitalk</a> 或 <a href="https://github.com/SukkaW/DisqusJS">DisqusJS</a> 评论系统</p>
-<p>🇬🇧  你可以使用<strong>中文简体</strong>或<strong>英语</strong></p>
-<p>🌁  你可以任意使用应用内默认主题或任意第三方主题，强大的主题自定义能力</p>
-<p>🖥  你可以自定义源文件夹，利用 OneDrive、百度网盘、iCloud、Dropbox 等进行多设备同步</p>
-<p>🌱 当然 <strong>Gridea</strong> 还很年轻，有很多不足，但请相信，它会不停向前 🏃</p>
-<p>未来，它一定会成为你离不开的伙伴</p>
-<p>尽情发挥你的才华吧！</p>
-<p>😘 Enjoy~</p>
+<h2 id="docker中挂载mongodb">docker中挂载mongodb</h2>
+<pre><code class="language-bash">docker run -p 27017:27017 -v /data/mongo:/data/db --name mongodb -d mongo
+</code></pre>
+<p>特别注意：挂载的/data/db目录必须要有，并确保该目录有<strong>写</strong>权</p>
+<pre><code class="language-bash">mkdir -p /data/p
+</code></pre>
+<h2 id="quick-start">💨Quick Start</h2>
+<h3 id="数据库操作">数据库操作</h3>
+<pre><code class="language-bash"># 查看当前指向数据库
+db
+
+# CRUD
+##  插入(MAX_SIZE = 48MBp)
+db.good.insert(&lt;文档&gt;)
+### 若想插入多条数据？（插入集合）
+post1 = {&quot;title&quot;:&quot;blog1&quot;,&quot;date&quot;:new Date()}
+post2 = {&quot;title&quot;:&quot;blog2&quot;,&quot;date&quot;:new Date()}
+post3 = {&quot;title&quot;:&quot;blog3&quot;,&quot;date&quot;:new Date()}
+db.good.insert([
+post1,post2,post3
+])
+
+## 查询
+### 查一个
+db.good.findOne()
+### find会显示至多20条数据
+
+## 更新
+### 增加字段（增加评论字段）
+post.comments = []
+### 更新数据
+db.good.update({title:&quot;my blog update&quot;},post)
+
+## 删除
+db.good.remove({title:&quot;my blog update&quot;})
+
+</code></pre>
+<h3 id="java开发中使用">Java开发中使用</h3>
+<pre><code class="language-java">/*
+* 对于mongodb-java-driver 3.7 以下的版本适用
+*/
+
+/**********************无验证版本**********************/
+// new一个mongoClient
+MongoClient mongoClient = new MongoClient(&quot;&lt;host&gt;&quot;,&lt;port&gt;);
+
+//获取mongo数据库
+MongoDatabase mongoDatabase = mongoClient.getDatabase(&quot;&lt;database_name&gt;&quot;);
+
+/**********************有验证版本**********************/
+ServerAddress serverAddress = new ServerAddress(&quot;&lt;host&gt;&quot;,27017);
+List&lt;ServerAddress&gt; addressList = new ArrayList&lt;&gt;();
+addressList.add(serverAddress);
+
+//mongo验证
+MongoCredential credential = MongoCredential.createScramSha1Credential(&quot;username&quot;,&quot;databaseName&quot;,&quot;password&quot;.toCharArray());
+
+List&lt;MongoCredential&gt; credentials = new ArrayList&lt;&gt;();
+
+credentials.add(credential);
+
+MongoClient mongoClient = new MongoClient(addressList,credentials);
+
+MongoDatabase mongoDatabase = mongoClient.getDatabase(&quot;databaseName&quot;);
+System.out.println(&quot;Connect successfully&quot;);
+
+/*
+* 对于mongodb-java-driver 3.7 以上的版本适用
+* 仅仅是这两处的不同
+*/
+
+// 连接到 mongodb 服务
+mongoClient = MongoClients.create(
+    MongoClientSettings.builder()
+    .applyToClusterSettings(builder -&gt;
+                            builder.hosts(Arrays.asList(new ServerAddress(&quot;192.168.216.131&quot;))))
+    .build());
+
+// 连接到数据库
+mongoDatabase = mongoClient.getDatabase(&quot;testdb&quot;);
+
+</code></pre>
+<blockquote>
+<p>Tips:</p>
+<p><strong><s>对于mongo3.7以上的版本，java中对mongo的API完全不同</s></strong></p>
+<p><s>若是对 3.7 以上的版本采用新API，那么就会报nullpoint错误</s></p>
+<p>主要是要区分 com.mongodb.MongoClient(类) 和  com.mongodb.client.MongoClient 是接口。</p>
+<p><strong>报 because there was a socket exception raised by this connection. 错误是因为数据量太大，读不出来</strong></p>
+<p><strong>还有可能就是未授权yml配置需要采用 authentication-database: admin 进行授权</strong></p>
+<figure data-type="image" tabindex="1"><img src="C:%5CUsers%5Cthgy%5CAppData%5CRoaming%5CTypora%5Ctypora-user-images%5Cimage-20210709151856862.png" alt="" loading="lazy"></figure>
+</blockquote>
+<blockquote>
+<p>参考资料：</p>
+<p><a href="http://mongodb.github.io/mongo-java-driver/4.2/driver/getting-started/quick-start/">mongoDB JVM Drivers（4.2）文档</a></p>
+<p><a href="http://mongodb.github.io/mongo-java-driver/3.9/javadoc/?com/mongodb/client/MongoClient.html">mongo-java-API文档</a></p>
+<p><a href="https://blog.csdn.net/u011466470/article/details/84673761">关于 socket exception rised 错误</a></p>
+<p><a href="https://www.bilibili.com/video/BV1264y1v77R?p=24">采用 authentication-database: admin 进行授权问题( 视频 )</a></p>
+</blockquote>
+<h3 id="mongo索引查询">mongo索引查询</h3>
+<pre><code class="language-java">    /**
+     * @title getTxByAddress
+     * @description 通过地址找交易
+     * @author DiomChen
+     * @updateTime 2021/7/12 17:55
+     * @throws
+     * @测试数据：
+     *      17yYyafrfiaaVJGcaeQdpAeHdcBQSKAuLD
+     */
+    @Test
+    public void getTxByAddress(){
+        Query query = new Query(Criteria
+                .where(&quot;address&quot;).is(&quot;17yYyafrfiaaVJGcaeQdpAeHdcBQSKAuLD&quot;));
+        List&lt;Addresstxs&gt; addresstxsList = mongoTemplate.find(query,Addresstxs.class);
+        String txid = addresstxsList.get(0).getTxid();
+        Query query1 = new Query(Criteria
+        .where(&quot;txid&quot;).is(txid));
+        System.out.println(mongoTemplate.find(query1,Transactions.class));
+    }
+</code></pre>
+<h4 id="无索引">无索引</h4>
+<figure data-type="image" tabindex="2"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210712185013822.png" alt="image-20210712185013822" loading="lazy"></figure>
+<h4 id="以address建立索引">以address建立索引</h4>
+<figure data-type="image" tabindex="3"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210712191003692.png" alt="image-20210712191003692" loading="lazy"></figure>
+<blockquote>
+<p>参考链接：</p>
+<p><a href="https://blog.csdn.net/weixin_41127890/article/details/105536297">SpringBoot2使用mongoTemplate创建集合并添加索引</a></p>
+<p><a href="https://www.cnblogs.com/williamjie/p/9297670.html">MongoDB索引管理－索引的创建、查看、删除</a></p>
+<p><a href="https://www.cnblogs.com/dataoblogs/p/14121911.html">在MongoDB中执行查询与创建索引</a></p>
+</blockquote>
+<h2 id="基本内容">基本内容</h2>
+<ul>
+<li>文档：对应关系型数据库中的行，但是内部有顺序</li>
+<li>集合：对应关系型数据库中的表，是有多个文档组成，对于文档内部不关心（动态模式）</li>
+</ul>
+<h2 id="数据类型">数据类型</h2>
+<ul>
+<li>null ：{&quot;x&quot; : null}</li>
+<li>布尔：{&quot;x&quot; : false}</li>
+<li>数值：{&quot;x&quot;:3}</li>
+<li>字符串：{&quot;x&quot;:&quot;str&quot;}</li>
+<li>日期：{&quot;x&quot;:new Date()}</li>
+<li>正则表达式：{&quot;x&quot;:/foobar/i}</li>
+<li>数组：{&quot;x&quot;:[&quot;a&quot;,&quot;b&quot;,&quot;c&quot;]}</li>
+<li>内嵌文档：{&quot;x&quot;:{&quot;foo&quot;,&quot;bar&quot;}}</li>
+<li>对象id：{&quot;x&quot;:ObjectId()}</li>
+<li>二进制数据：{&quot;x&quot;:}</li>
+<li>代码：{&quot;x&quot;:function(){/*     */}}</li>
+</ul>
 
 <span id="footnote"></span>
 <div id = "warn"></div>
@@ -61,7 +186,21 @@
 <div class="toc-container"><ul class="markdownIt-TOC">
 <li>
 <ul>
-<li><a href="#%E7%89%B9%E6%80%A7">特性👇</a></li>
+<li><a href="#docker%E4%B8%AD%E6%8C%82%E8%BD%BDmongodb">docker中挂载mongodb</a></li>
+<li><a href="#quick-start">💨Quick Start</a>
+<ul>
+<li><a href="#%E6%95%B0%E6%8D%AE%E5%BA%93%E6%93%8D%E4%BD%9C">数据库操作</a></li>
+<li><a href="#java%E5%BC%80%E5%8F%91%E4%B8%AD%E4%BD%BF%E7%94%A8">Java开发中使用</a></li>
+<li><a href="#mongo%E7%B4%A2%E5%BC%95%E6%9F%A5%E8%AF%A2">mongo索引查询</a>
+<ul>
+<li><a href="#%E6%97%A0%E7%B4%A2%E5%BC%95">无索引</a></li>
+<li><a href="#%E4%BB%A5address%E5%BB%BA%E7%AB%8B%E7%B4%A2%E5%BC%95">以address建立索引</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#%E5%9F%BA%E6%9C%AC%E5%86%85%E5%AE%B9">基本内容</a></li>
+<li><a href="#%E6%95%B0%E6%8D%AE%E7%B1%BB%E5%9E%8B">数据类型</a></li>
 </ul>
 </li>
 </ul>
