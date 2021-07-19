@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="shortcut icon" href="https://Diomchen.github.io/favicon.ico" type="image/x-icon" /><meta name="viewport"content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"/><meta name="apple-mobile-web-app-capable"content="yes"/><meta name="apple-mobile-web-app-status-bar-style"content="black"/><meta name="format-detection"content="telephone=no"/><meta name="renderer"content="webkit"><meta name="description"content="忙趁东风放纸鸢。"><meta charset="UTF-8"><title>🧶neo4j文档整理 | DiomChen&#39;s Blog</title>
+<link href="https://Diomchen.github.io/styles/main.css" type="text/css" rel="stylesheet" /><link href="https://at.alicdn.com/t/font_1621793_zatzzgvf30g.css" type="text/css" rel="stylesheet" /><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.12.0/dist/katex.css"><script async src="https://cdn.jsdelivr.net/npm/busuanzi@2.3.0/bsz.pure.mini.min.js"></script><script src="https://Diomchen.github.io/media/js/magnify.min.js"></script><script defer src="https://cdn.jsdelivr.net/npm/katex@0.12.0/dist/katex.min.js"></script>
+<script type="text/javascript">function btn_toggle(){document.getElementById("hn").classList.contains("no-js")?document.getElementById("hn").classList.remove("no-js"):document.getElementById("hn").classList.add("no-js")}</script>
+
+<link rel="canonical" href="https://Diomchen.github.io/post/neo4j-wen-dang-zheng-li/" />
+</head>
+<body>
+<div class="progress"></div><style>.progress{background:linear-gradient(to right,#87ceeb var(--scroll),transparent 0);background-repeat:no-repeat;position:fixed;width:100%;height:4px;z-index:1}</style><div class="darkmode-background"></div><div class="darkmode-layer"></div>
+<noscript><p class="warn" >本页面需要浏览器支持（启用）JavaScript</p></noscript><div class="header"><div class="logo_title"><div class="title animated fadeInDown"><a href="https://Diomchen.github.io"><img alt="logo" style="display:inline-block;" src="https://Diomchen.github.io/images/avatar.png"/></a><h1 title="DiomChen&#39;s Blog" class="weaklink"><a  href="/">DiomChen&#39;s Blog</a></h1>
+
+<div class="navbar weaklink">
+<div class="normal_nav">
+<div class="bitcron_nav_container"><div class="bitcron_nav"><div class="bitcron_nav"><div style="display:flex;justify-content:center;"><nav class="mixed_site_nav_wrap site_nav_wrap"><ul class="mixed_site_nav site_nav sm sm-base">	<li><a id="d2ef19af68cc211e98f8a0242ac110003" href="/" class="selected active current nav__item" >首页</a></li><li><a id="d2ef19af68cc211e98f8a0242ac110003" href="/archives" class="selected active current nav__item" >归档</a></li><li><a id="d2ef19af68cc211e98f8a0242ac110003" href="/tags" class="selected active current nav__item" >标签</a></li><li><a id="d2ef19af68cc211e98f8a0242ac110003" href="/post/about" class="selected active current nav__item" >关于</a></li></ul></nav>
+<div style="float:right;margin-top:1em"><form id="gridea-search-form" data-update="1578893743252" action="/search/index.html"><input class="search-input" autocomplete="off" spellcheck="false" name="q" placeholder="Search..."></form></div><div style="margin-left:0.5em;margin-top:1.2em"><input id="switch_default" onclick="mobileBtn()" type="checkbox" class="switch_default"><label for="switch_default" class="toggleBtn"></label></div></div>
+<div class="clear clear_nav_inline_end"></div></div></div><div class="clear clear_nav_end"></div></div></div><div class="hamberger" href="javascript:void(0)" onclick="btn_toggle();"><i class="iconfont icon-category"></i></div></div></div></div>
+<div id="hn" class="no-js hidden_nav animated fadeInDown"><div class="bitcron_nav_container"><div class="bitcron_nav"><nav class="mixed_site_nav_wrap site_nav_wrap"><ul class="mixed_site_nav site_nav sm sm-base">	<li><a id="d2ef19af68cc211e98f8a0242ac110003" href="/" class="selected active current nav__item" >首页</a></li><li><a id="d2ef19af68cc211e98f8a0242ac110003" href="/archives" class="selected active current nav__item" >归档</a></li><li><a id="d2ef19af68cc211e98f8a0242ac110003" href="/tags" class="selected active current nav__item" >标签</a></li><li><a id="d2ef19af68cc211e98f8a0242ac110003" href="/post/about" class="selected active current nav__item" >关于</a></li></ul><div class="clear clear_nav_inline_end"></div></nav></div><div class="clear clear_nav_end"></div></div>
+<div style="display:flex;justify-content:center;inline-block;text-align:center;margin-top:7%"><div><form id="gridea-search-form" data-update="1626694032239" action="/search/index.html"><input class="search-input" autocomplete="off" spellcheck="false" name="q"  placeholder="Search..." /></form></div><div style="margin-left:0.5em"><input id="switch_default_h" onclick="mobileBtn()" type="checkbox" class="switch_default"><label for="switch_default" class="toggleBtn"></label></div></div>
+</div></div>
+<script>function enableDarkmode(){document.body.classList.add("darkmode"),document.getElementById("switch_default").checked=1,document.getElementById("switch_default_h").checked=1}function removeDarkmode(){document.body.classList.remove("darkmode"),document.getElementById("switch_default").checked=0,document.getElementById("switch_default_h").checked=0}function getCookie(a){var b,c=new RegExp("(^| )"+a+"=([^;]*)(;|$)");return(b=document.cookie.match(c))?unescape(b[2]):null}cookie=getCookie("darkmode"),"enable"==cookie&&enableDarkmode(),window.matchMedia("(prefers-color-scheme: dark)").matches&&"disable"!==cookie&&(enableDarkmode(),document.cookie="darkmode=enable; path=/");var mobileBtn=function(){1==document.getElementById("switch_default").checked?(enableDarkmode(),document.cookie="darkmode=enable; path=/"):(removeDarkmode(),document.cookie="darkmode=disable; path=/")};</script>
+
+<div class="main"><div class="main-inner"><div class="content">
+<article class="post">
+<h2 class="post_title sm_margin"><a>🧶neo4j文档整理</a></h2>
+<script>function lan(){if(document.getElementById("lan").innerText=="繁"){var s=document.getElementById("tongwenlet_cn");if(s!=null){document.body.removeChild(s)}var s=document.createElement("script");s.language="javascript";s.type="text/javascript";s.src="https://cdn.jsdelivr.net/gh/qyxtim/Static@1.1/bookmarklet_tw.js";s.id="tongwenlet_cn";document.body.appendChild(s);document.getElementById("lan").innerHTML="简"}else{if(document.getElementById("lan").innerText=="簡"){var s=document.getElementById("tongwenlet_cn");if(s!=null){document.body.removeChild(s)}var s=document.createElement("script");s.language="javascript";s.type="text/javascript";s.src="https://cdn.jsdelivr.net/gh/qyxtim/Static@1.1/bookmarklet_cn.js";s.id="tongwenlet_cn";document.body.appendChild(s);document.getElementById("lan").innerHTML="繁"}}};</script>
+<section class="post_details"><i class="iconfont icon-calendar"></i><span style="margin-right:15px"> 2021-07-19</span><i class="iconfont icon-browse"></i><span style="margin-right:15px"> <span id="busuanzi_value_page_pv"></span> Views</span><i class="iconfont icon-category"></i><span class="weaklink" style="margin-right:15px"></span><i class="iconfont icon-caret-down"></i><span style="margin-right:15px">1359字</span><i class="iconfont icon-naozhong"></i><span style="margin-right:15px">7 min read</span><a id="lan" href="javascript:void(0);"onclick="lan();"title="调整简繁体" style="margin-right:15px;">繁</a>
+</section>
+
+<div style="display:flex">
+<div class="md_block" id="md_block">
+<div class="round-shape-one"></div>
+<h2 id="1-环境部署方面">1. 🛠环境部署方面</h2>
+<h4 id="11-版本选择">1.1 版本选择</h4>
+<p>对于neo4j版本方面，3.x 对应 Java8，4.x 对应 Java11。</p>
+<figure data-type="image" tabindex="1"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210708104701348.png" alt="" loading="lazy"></figure>
+<p>现在87和88机器上使用的都是4.x版本。</p>
+<h4 id="12-部署">1.2 部署</h4>
+<h5 id="docker中部署"><strong>🐋docker中部署</strong></h5>
+<p>拉取 neo4j 镜像，指定 7474，7687 端口的映射。</p>
+<p><font color="green">但是一定要指定import和data映射文件夹</font></p>
+<h5 id="服务器直接部署">🖥<strong>服务器直接部署</strong></h5>
+<p>下载解压ce版本</p>
+<p>更改/conf/neo4j.conf文件，之后启动 ./bin/neoj</p>
+<pre><code class="language-shell"># With default configuration Neo4j only accepts local connections.
+# To accept non-local connections, uncomment this line:
+
+#特别注意：默认是注释的，不开启，外网不能访问web端口neo4j
+dbms.default_listen_address=0.0.0.0
+
+# You can also choose a specific network interface, and configure a non-default
+# port for each connector, by setting their individual listen_address.
+
+# The address at which this server can be reached by its clients. This may be the server's IP address or DNS name, or
+# it may be the address of a reverse proxy which sits in front of the server. This setting may be overridden for
+# individual connectors below.
+#dbms.default_advertised_address=localhost
+
+# You can also choose a specific advertised hostname or IP address, and
+# configure an advertised port for each connector, by setting their
+# individual advertised_address.
+
+# By default, encryption is turned off.
+# To turn on encryption, an ssl policy for the connector needs to be configured
+# Read more in SSL policy section in this file for how to define a SSL policy.
+
+# Bolt connector
+dbms.connector.bolt.enabled=true
+#dbms.connector.bolt.tls_level=DISABLED
+dbms.connector.bolt.listen_address=0.0.0.0:7687
+#dbms.connector.bolt.advertised_address=:7687
+
+# HTTP Connector. There can be zero or one HTTP connectors.
+dbms.connector.http.enabled=true
+dbms.connector.http.listen_address=0.0.0.0:7474
+#dbms.connector.http.advertised_address=:7474
+
+# HTTPS Connector. There can be zero or one HTTPS connectors.
+dbms.connector.https.enabled=false
+dbms.connector.https.listen_address=0.0.0.0:7473
+#dbms.connector.https.advertised_address=:7473
+</code></pre>
+<h2 id="2-java开发方面">2. ☕java开发方面</h2>
+<h4 id="21-设置驱动启动">2.1 设置驱动启动</h4>
+<p>不推荐，推荐springboot的自动配置</p>
+<pre><code class="language-java">//设置driver
+Driver driver = GraphDatabase.driver(&quot;bolt://192.168.216.131:7687&quot;, AuthTokens.basic(&quot;neo4j&quot;, &quot;123456&quot; ));
+
+//打开session
+Session session = driver.session();
+
+//执行语句
+String cql = &quot;create (n:Person{name:$name,title:$title})&quot;;
+            String insert_test_str = session.writeTransaction(new TransactionWork&lt;String&gt;() {
+                @Override
+                public String execute(Transaction tx) {
+                    Result result = tx.run(cql,parameters(&quot;name&quot;,&quot;diomchen&quot;,&quot;title&quot;,&quot;The Code Hero&quot;));
+                    return &quot;Create Node OK!&quot;;
+                }
+            });
+
+//关闭session
+session.close();
+
+//关闭driver
+driver.close();
+</code></pre>
+<h4 id="22-springboot自动配置">2.2 springboot自动配置</h4>
+<pre><code class="language-yml">#yml基本配置
+    neo4j:
+      uri: bolt://&lt;host&gt;:7687
+      username: neo4j
+      password: 123456
+</code></pre>
+<h5 id="通过cypher语句实现操作"><strong>通过cypher语句实现操作</strong></h5>
+<p>neo4j对象：</p>
+<pre><code class="language-java">@Data
+@Node(labels = {&quot;Addresstxs&quot;})
+public class NAddresstxs {
+//    //自动生成id
+//    @Id @GeneratedValue
+//    private Long id;
+
+    //交易地址表Id
+    @Id
+    private String addresstxsId;
+
+    //交易地址
+    @Property(name =&quot;address&quot;)
+    private String address;
+</code></pre>
+<p>repository：</p>
+<pre><code class="language-java">@Repository
+public interface AddresstxsRepository extends Neo4jRepository&lt;NAddresstxs,String&gt; {
+
+    @Query(&quot;create (n:Addresstxs{ addresstxsId:$addresstxsId , address:$address , type:$type}) return n&quot;)
+    List&lt;NAddresstxs&gt; addAddresstxs(@Param(&quot;addresstxsId&quot;) String addresstxsId, @Param(&quot;address&quot;) String address, @Param(&quot;type&quot;) Integer type);
+
+    @Query(&quot;match (n) return n&quot;)
+    List&lt;NAddresstxs&gt; getAddresstxs();
+    /*
+    	特别需要注意返回的类型，否则会报以下问题
+    */
+}
+</code></pre>
+<p><strong><font color="green">org.springframework.data.mapping.MappingException: The schema already contains a node description under the primary label Addresstxs</font></strong></p>
+<p>cypher语句在 3.x 和 4.x 中有所不同</p>
+<pre><code class="language-java">//java中cql(3.x)
+String cql = &quot;create (n:Person{name:{name},title:{title}})&quot;;
+
+//java中cql(4.x)
+String cql = &quot;create (n:Person{name:$name,title:$title})&quot;;
+</code></pre>
+<h5 id="通过neo4jtemplate"><strong>通过Neo4jTemplate</strong></h5>
+<p>pom:</p>
+<pre><code class="language-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-data-neo4j&lt;/artifactId&gt;
+&lt;/dependency&gt;
+</code></pre>
+<p>注入:</p>
+<pre><code class="language-java">@Resource
+Neo4jTemplate neo4jTemplate;
+</code></pre>
+<p>其实和 MongoTemplate 操作一样，都是save，find等等，当然也支持自定条件。</p>
+<h2 id="3-数据导入neo4j数据库方面">3. 💾数据导入Neo4j数据库方面</h2>
+<p><mark>导入数据到neo4j是最影响使用体验的。</mark></p>
+<h4 id="31-导入方式比较">3.1 导入方式比较</h4>
+<p>基本方式可以见下图，但是现在可用的只有<strong>create语句，load csv语句，apoc插件</strong>，其他的基本因为缺少维护而废用。</p>
+<p>第一种 create 语句，可以说是非常之慢，实际使用远低于下图的1000/s速度。</p>
+<p>第二种 load csv 语句，也是现在用的，3k+ 节点和12k+ 关系 导入花了 30 分钟左右 。</p>
+<p>但是网上有<a href="https://zhuanlan.zhihu.com/p/90691645">创建约束</a>的方法解决，也有通过添加**:auto using periodic commit 200** 控制提交频率的方式来提高导入速度，这些都还未尝试过。</p>
+<p>最后一种 apoc 插件导入，还未使用，暂不做评价。</p>
+<figure data-type="image" tabindex="2"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210710145416951.png" alt="" loading="lazy"></figure>
+<h4 id="32-csv数据创建和导入">3.2 CSV数据创建和导入</h4>
+<h5 id="csv规范"><strong>📃CSV规范</strong></h5>
+<p>Relationships规范</p>
+<ul>
+<li>START_ID</li>
+<li>END_ID</li>
+<li>TYPE</li>
+</ul>
+<p>所以对于Node就需要有能够建立关系的标识性属性。</p>
+<p><em>cypher 语句实际使用中，对于 TYPE 属性也并非硬性要求。</em></p>
+<h5 id="csv创建与导出"><strong>⛓CSV创建与导出</strong></h5>
+<ol>
+<li>java先从mongo中读取所需数据</li>
+<li>创建导出csv所需属性的对象</li>
+<li>利用fastjson插件，将对象列表转成json字符串</li>
+<li>利用jackson插件，将json字符串转成csv</li>
+<li>导出csv文件</li>
+</ol>
+<p>工具类：</p>
+<pre><code class="language-java">    //对象列表转csv    public static&lt;T&gt; void Object2Csv(List&lt;T&gt; objectList,String savePath) throws IOException {        JSONArray jsonArray = new JSONArray();        jsonArray.addAll(objectList);        String ss = jsonArray.toJSONString();        JsonNode jsonNode = new ObjectMapper().readTree(ss);        CsvSchema.Builder csvSchemaBuild = CsvSchema.builder();        JsonNode fObject = jsonNode.elements().next();        fObject.fieldNames().forEachRemaining(fieldName -&gt; {csvSchemaBuild.addColumn(fieldName);});        CsvSchema csvSchema = csvSchemaBuild.build().withHeader();        OutputStreamWriter ow = new OutputStreamWriter(new FileOutputStream(new File(savePath)),&quot;gbk&quot;);        CsvMapper csvMapper = new CsvMapper();        csvMapper.writerFor(JsonNode.class)                .with(csvSchema)                .writeValue(ow, jsonNode);    }        //对象列表转json    public static &lt;T&gt; void Object2Json(List&lt;T&gt; objectList,String savePath) throws IOException {        JSONArray jsonArray = new JSONArray();        jsonArray.addAll(objectList);        String ss = jsonArray.toJSONString();        save(ss,savePath);    }    private static void save(String jsonstr,String filename) throws IOException {        OutputStreamWriter osw=new OutputStreamWriter(new FileOutputStream(filename), &quot;gbk&quot;);        osw.write(jsonstr);        osw.flush();        osw.close();    }
+</code></pre>
+<h5 id="csv导入"><strong>🧣CSV导入</strong></h5>
+<p>只尝试过采用LOAD CSV语句的导出方式。</p>
+<pre><code class="language-java">    @Query(&quot;load csv with HEADERS from \&quot;file:///addrN.csv\&quot; as line merge (n:Address{address:line.address}) &quot;)    void optInAddAddressNode();
+</code></pre>
+<p><em>merge</em> 的好处，它会判断库里面是否以及存在该相同节点，若有，则不会创建，反之，则会创建新节点。这样就避免了库里面存在多个重复节点。</p>
+<blockquote>
+<p>参考资料：</p>
+<p><a href="https://blog.csdn.net/mathew_leung/article/details/101838350">centos7 服务器安装neo4j并实现远程访问</a></p>
+<p><a href="https://neo4j.com/docs/operations-manual/current/tutorial/neo4j-admin-import/">Neo4j Admin import</a></p>
+<p><a href="https://neo4j.com/labs/apoc/4.2/overview/apoc.algo/">apoc文档</a></p>
+</blockquote>
+
+<span id="footnote"></span>
+<div id = "warn"></div>
+</div>
+<div class="toc-container"><ul class="markdownIt-TOC">
+<li>
+<ul>
+<li><a href="#1-%E7%8E%AF%E5%A2%83%E9%83%A8%E7%BD%B2%E6%96%B9%E9%9D%A2">1. 🛠环境部署方面</a><br>
+*
+<ul>
+<li><a href="#11-%E7%89%88%E6%9C%AC%E9%80%89%E6%8B%A9">1.1 版本选择</a></li>
+<li><a href="#12-%E9%83%A8%E7%BD%B2">1.2 部署</a>
+<ul>
+<li><a href="#docker%E4%B8%AD%E9%83%A8%E7%BD%B2"><strong>🐋docker中部署</strong></a></li>
+<li><a href="#%E6%9C%8D%E5%8A%A1%E5%99%A8%E7%9B%B4%E6%8E%A5%E9%83%A8%E7%BD%B2">🖥<strong>服务器直接部署</strong></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#2-java%E5%BC%80%E5%8F%91%E6%96%B9%E9%9D%A2">2. ☕java开发方面</a><br>
+*
+<ul>
+<li><a href="#21-%E8%AE%BE%E7%BD%AE%E9%A9%B1%E5%8A%A8%E5%90%AF%E5%8A%A8">2.1 设置驱动启动</a></li>
+<li><a href="#22-springboot%E8%87%AA%E5%8A%A8%E9%85%8D%E7%BD%AE">2.2 springboot自动配置</a>
+<ul>
+<li><a href="#%E9%80%9A%E8%BF%87cypher%E8%AF%AD%E5%8F%A5%E5%AE%9E%E7%8E%B0%E6%93%8D%E4%BD%9C"><strong>通过cypher语句实现操作</strong></a></li>
+<li><a href="#%E9%80%9A%E8%BF%87neo4jtemplate"><strong>通过Neo4jTemplate</strong></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#3-%E6%95%B0%E6%8D%AE%E5%AF%BC%E5%85%A5neo4j%E6%95%B0%E6%8D%AE%E5%BA%93%E6%96%B9%E9%9D%A2">3. 💾数据导入Neo4j数据库方面</a><br>
+*
+<ul>
+<li><a href="#31-%E5%AF%BC%E5%85%A5%E6%96%B9%E5%BC%8F%E6%AF%94%E8%BE%83">3.1 导入方式比较</a></li>
+<li><a href="#32-csv%E6%95%B0%E6%8D%AE%E5%88%9B%E5%BB%BA%E5%92%8C%E5%AF%BC%E5%85%A5">3.2 CSV数据创建和导入</a>
+<ul>
+<li><a href="#csv%E8%A7%84%E8%8C%83"><strong>📃CSV规范</strong></a></li>
+<li><a href="#csv%E5%88%9B%E5%BB%BA%E4%B8%8E%E5%AF%BC%E5%87%BA"><strong>⛓CSV创建与导出</strong></a></li>
+<li><a href="#csv%E5%AF%BC%E5%85%A5"><strong>🧣CSV导入</strong></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<div id="fullPage"><canvas id="canvas"></canvas></div>
+</article>
+<div id="eof"><span>EOF</span></div><div class="round-shape-one"></div>
+<section>
+<div class="doc_comments">
+
+</div></section>
+</div></div></div><script>
+"use strict";!function(){for(var n=document.getElementsByTagName("pre"),e=n.length,s=0;s<e;s++){n[s].innerHTML='<span class="line-number"></span>'+n[s].innerHTML+'<span class="cl"></span>';for(var a=n[s].innerHTML.split(/\n/).length,r=0;r<a-1;r++){n[s].getElementsByTagName("span")[0].innerHTML+="<span>"+(r+1)+"</span>"}}}();
+let mainNavLinks=document.querySelectorAll(".markdownIt-TOC a");window.addEventListener("scroll",event=>{let fromTop=window.scrollY;mainNavLinks.forEach((link,index)=>{let section=document.getElementById(decodeURI(link.hash).substring(1));let nextSection=null
+if(mainNavLinks[index+1]){nextSection=document.getElementById(decodeURI(mainNavLinks[index+1].hash).substring(1));}
+if(section.offsetTop<=fromTop){if(nextSection){if(nextSection.offsetTop>fromTop){link.classList.add("currentToc");}else{link.classList.remove("currentToc");}}else{link.classList.add("currentToc");}}else{link.classList.remove("currentToc");}});});
+var h=document.documentElement,b=document.body,st="scrollTop",sh="scrollHeight",progress=document.querySelector(".progress"),scroll;document.addEventListener("scroll",function(){scroll=(h[st]||b[st])/((h[sh]||b[sh])-h.clientHeight)*100;progress.style.setProperty("--scroll",scroll+"%")});
+var wxScale=new WxScale({fullPage:document.querySelector("#fullPage"),canvas:document.querySelector("#canvas")});var imgBox=document.querySelectorAll("#md_block img");for(var i=0;i<imgBox.length;i++){imgBox[i].onclick=function(e){wxScale.start(this)}};
+</script>
+<a id="scrollUp" href="#top" style="position: fixed; z-index: 2147483647; display: block;"></a><div class="footer animated fadeInDown"><div class="site_footer"><div class="mysocials"><div class="my_socials"></div></div><div class="copyright"id="copyright">Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>Copyright © 2018-2020 <a href="https://Diomchen.github.io" style="margin:0;">DiomChen&#39;s Blog</a>.</div>
+<span style="display: inline;margin-right:15px;">👁<strong><span id="busuanzi_value_site_uv"></span></strong></span><span id="busuanzi_container_page_pv" style="display: inline;"><span>📚<strong>3</strong> posts</span></div></div>
+<script>
+console.log("\n %c \u26a1Theme: Bitcron-pro Author's Blog:https://blog.blinkstar.cn  Writen By Serence  \n\n", "color: #ffffff; background: rgba(49, 49, 49, 0.85); padding:5px 0;border-radius:5px;", );
+</script>
+<script src="https://cdn.jsdelivr.net/npm/instant.page@3.0.0/instantpage.min.js" type="module" defer></script>
+<script type="text/javascript" async src="https://Diomchen.github.io/media/js/prism.js"></script>
+</body>
+</html>
