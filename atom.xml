@@ -2,7 +2,7 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://Diomchen.github.io</id>
     <title>DiomChen&apos;s Blog</title>
-    <updated>2021-07-23T09:43:12.365Z</updated>
+    <updated>2021-07-23T09:56:25.958Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://Diomchen.github.io"/>
     <link rel="self" href="https://Diomchen.github.io/atom.xml"/>
@@ -10,6 +10,79 @@
     <logo>https://Diomchen.github.io/images/avatar.png</logo>
     <icon>https://Diomchen.github.io/favicon.ico</icon>
     <rights>All rights reserved 2021, DiomChen&apos;s Blog</rights>
+    <entry>
+        <title type="html"><![CDATA[🌞 Apollo使用]]></title>
+        <id>https://Diomchen.github.io/post/apollo-shi-yong/</id>
+        <link href="https://Diomchen.github.io/post/apollo-shi-yong/">
+        </link>
+        <updated>2021-07-23T09:55:58.000Z</updated>
+        <content type="html"><![CDATA[<h2 id="1apollo的部署">1.Apollo的部署</h2>
+<h3 id="11-docker中安装">1.1 docker中安装</h3>
+<p>安装docker compose，注意版本号。</p>
+<pre><code class="language-bash">sudo curl -L &quot;https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)&quot; -o /usr/local/bin/docker-compose
+</code></pre>
+<p>给权限。</p>
+<pre><code class="language-bash">sudo chmod +x /usr/local/bin/docker-compose
+</code></pre>
+<p>检查docker-compose是否安装是否成功。</p>
+<pre><code class="language-bash">docker-compose --version
+
+$root&gt; docker-compose version 1.29.2, build 5becea4c
+</code></pre>
+<p>接下来安装apollo，进入docker-quick-start目录。</p>
+<pre><code class="language-bash">docker-compose up -d
+</code></pre>
+<figure data-type="image" tabindex="1"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210722145922495.png" alt="image-20210722145922495" loading="lazy"></figure>
+<blockquote>
+<p>参考资料：</p>
+<p><a href="https://www.apolloconfig.com/#/zh/deployment/quick-start-docker">Apollo官方文档</a></p>
+<p><a href="https://docs.docker.com/compose/install/#install-pre-release-builds">dockers-compose 安装 （official）</a></p>
+</blockquote>
+<h2 id="2apollo的基本配置">2.Apollo的基本配置</h2>
+<p>输入 <host>:8070 。</p>
+<p>账号：apollo</p>
+<p>密码：admin</p>
+<figure data-type="image" tabindex="2"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210722145955235.png" alt="image-20210722145955235" loading="lazy"></figure>
+<h3 id="21用户管理">2.1用户管理：</h3>
+<figure data-type="image" tabindex="3"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210722193100160.png" alt="image-20210722193100160" loading="lazy"></figure>
+<h3 id="22-新增部门">2.2 新增部门：</h3>
+<figure data-type="image" tabindex="4"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210723160708395.png" alt="image-20210723160708395" loading="lazy"></figure>
+<h3 id="23-创建项目">2.3 创建项目：</h3>
+<figure data-type="image" tabindex="5"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210723161347633.png" alt="image-20210723161347633" loading="lazy"></figure>
+<h3 id="24-创建集群">2.4 创建集群：</h3>
+<figure data-type="image" tabindex="6"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210723161657862.png" alt="image-20210723161657862" loading="lazy"></figure>
+<figure data-type="image" tabindex="7"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210723161730668.png" alt="image-20210723161730668" loading="lazy"></figure>
+<figure data-type="image" tabindex="8"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210723161753685.png" alt="image-20210723161753685" loading="lazy"></figure>
+<h3 id="25-创建namespace">2.5 创建namespace</h3>
+<figure data-type="image" tabindex="9"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210723162323730.png" alt="image-20210723162323730" loading="lazy"></figure>
+<figure data-type="image" tabindex="10"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210723162159327.png" alt="image-20210723162159327" loading="lazy"></figure>
+<figure data-type="image" tabindex="11"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210723162639376.png" alt="image-20210723162639376" loading="lazy"></figure>
+<figure data-type="image" tabindex="12"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210723162600357.png" alt="image-20210723162600357" loading="lazy"></figure>
+<figure data-type="image" tabindex="13"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210723162802323.png" alt="image-20210723162802323" loading="lazy"></figure>
+<h3 id="26-关联namespace">2.6 关联namespace</h3>
+<p>无需再新建相同的配置。</p>
+<figure data-type="image" tabindex="14"><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210723163556927.png" alt="image-20210723163556927" loading="lazy"></figure>
+<h2 id="错误解决">错误解决</h2>
+<ol>
+<li><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210722191333471.png" alt="image-20210722191333471" loading="lazy"></li>
+</ol>
+<p>先关掉docker-compose</p>
+<pre><code class="language-bash">docker-compose down
+</code></pre>
+<p>再打开docker-compose</p>
+<pre><code class="language-bash">docker-compose up
+</code></pre>
+<ol start="2">
+<li><img src="https://cdn.jsdelivr.net/gh/Diomchen/PiCor/image-20210722191530968.png" alt="image-20210722191530968" loading="lazy"></li>
+</ol>
+<p>首先还是检查端口是否被占用</p>
+<pre><code class="language-bash">netstat -nlpt
+</code></pre>
+<p>如果不是端口问题，说明在过去一段时间里重启过服务器防火墙，则需要将docker服务重启</p>
+<pre><code class="language-bash">service docker restart
+</code></pre>
+]]></content>
+    </entry>
     <entry>
         <title type="html"><![CDATA[🌍neo4j]]></title>
         <id>https://Diomchen.github.io/post/neo4j/</id>
