@@ -190,8 +190,8 @@
     "reference/transformer-shapes.html": "0c170418380bbb48a7355ac19547eb08516c321d7723b63e517d3558bf5eea8f",
     "reference/visual-atlas.html": "d44af93c7f822c6c2387c18cbb9c8f14685b1d54b6ee2f7e66fa0c7c6889983f",
     "RESOURCES.md": "2c025e1d2cc2d6c36c2c517f06ce9b113ee68fd5da73accdf2a8c13d52c01380",
-    "third-party/deepinfer/LICENSE": "1eb85fc97224598dad1852b5d6483bbcf0aa8608790dcc657a5a2a761ae9c8c6",
-    "third-party/nano-vllm/LICENSE": "0d393c5b5dfb34fa99155e31043acb27d65dcdddd4c85869d51ae1bc26d48197",
-    "third-party/vllm/LICENSE": "1eb85fc97224598dad1852b5d6483bbcf0aa8608790dcc657a5a2a761ae9c8c6"
+    "third-party/deepinfer/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "third-party/nano-vllm/LICENSE": "97648cbc67d6ed6a68ebc6a31b06c0741ff73a2abb13cc18abffd81f26cd5dd4",
+    "third-party/vllm/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
   }
 }
