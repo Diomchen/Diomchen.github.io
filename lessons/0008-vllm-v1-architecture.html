@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>08 · vLLM v1 架构总览</title>
+<link rel="stylesheet" href="../assets/course.css?v=2">
+</head>
+<body>
+<div class="page">
+
+<nav class="lesson-nav">
+  <a href="0007-run-and-measure.html">← 07 跑起来并测量</a>
+  <a class="home" href="../index.html">课程索引</a>
+  <a class="right" href="0009-vllm-scheduling-kv.html">09 vLLM 调度与 KV →</a>
+</nav>
+
+<header>
+  <p class="kicker">课程 08 · 生产实现</p>
+  <h1>从 1450 行到 20 万行</h1>
+  <p class="dek">vLLM v1 的 <code>vllm/v1/</code> 有 491 个 Python 文件、208,340 行。但如果你已经读懂 nano-vllm，你会发现骨架几乎一样——多出来的是工程约束。</p>
+  <p class="meta">
+    <span>约 55 分钟</span>
+    <span>源码：<code>vllm/v1/engine/</code> · <code>vllm/v1/core/</code></span>
+    <span>前置：01–07</span>
+  </p>
+</header><div class="aside"><span class="label">2026-11-08 源码校正</span><p>本页已按本地固定commit修正相关描述。<a href="../reference/framework-map.html">三框架对照</a> · <a href="../reference/source-map.html">带行号的离线证据</a> · <a href="../docs/research/framework-deep-dive-2026-11-08.md">核查与勘误详情</a>。</p></div>
+
+<h2><span class="num">1</span>先看规模差在哪</h2>
+
+<table>
+  <thead><tr><th></th><th>nano-vllm</th><th>vLLM v1</th></tr></thead>
+  <tbody>
+    <tr><td>Python 文件</td><td>21</td><td>491（整个仓库 3226）</td></tr>
+    <tr><td>代码行数</td><td>1,450</td><td>208,340</td></tr>
+    <tr><td>调度器</td><td>92 行</td><td>3,869 行</td></tr>
+    <tr><td>「引擎」单文件</td><td>90 行</td><td>3,094 行（<code>engine/core.py</code>）</td></tr>
+    <tr><td>模型支持</td><td>1 个（Qwen3）</td><td>数百个架构 + 多模态</td></tr>
+    <tr><td>硬件</td><td>NVIDIA 单机</td><td>NVIDIA / AMD / TPU / CPU / Ascend…</td></tr>
+  </tbody>
+</table>
+
+<p>多出来的部分，绝大部分不是在「理解原理」上变复杂，而是在处理<strong>现实世界的约束</strong>：多模态输入、投机解码、前缀缓存的淘汰、KV 传输、租户隔离、可观测性、autotune、睡眠唤醒……</p>
+
+<div class="key">
+  <span class="label">心态</span>
+  <p>读 vLLM 不要试图「读完」。按 nano-vllm 的五个部件去找对应的实现，看到同名概念就停——你已经知道它是干什么的了，只需要知道它在工程上被拆成了几层。</p>
+</div>
+
+<h2><span class="num">2</span>三层结构</h2>
+
+<div class="loop">
+  <div class="box"><b>前端 LLMEngine</b><span>tokenize · 输出处理 · 统计</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>EngineCore</b><span>调度 · 前向 · 采样</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>Executor + Worker</b><span>真正碰 GPU 的进程</span></div>
+</div>
+
+<p>nano-vllm 把这三层压在一个 <code>LLMEngine</code> 类里，vLLM 把它们拆开，因为中间那层要能<strong>跨进程、跨机器</strong>部署，还要能<strong>异步</strong>跑。</p>
+
+<h3>前端：<code>LLMEngine.step()</code></h3>
+
+<pre><code><span class="file">vllm/v1/engine/llm_engine.py · L319–372</span>def step(self):
+    outputs = self.engine_core.get_output()                  <span class="cm"># 1) 从引擎核取结果</span>
+    processed_outputs = self.output_processor.process_outputs(outputs.outputs, ...)   <span class="cm"># 2) 解码、判停、组响应</span>
+    self.engine_core.abort_requests(processed_outputs.reqs_to_abort)                   <span class="cm"># 3) 停字符串等触发的取消</span>
+    self.logger_manager.record(...)                           <span class="cm"># 4) 指标</span>
+    return processed_outputs.request_outputs</code></pre>
+
+<p>前端只做「IO 与语义」：把 token id 变成文字、判断 stop string、组装 OpenAI 风格的响应。它不碰 GPU，也不决定调度。</p>
+
+<h3>引擎核：<code>EngineCore.step()</code></h3>
+
+<pre><code><span class="file">vllm/v1/engine/core.py · L710–740</span>def step(self):
+    scheduler_output = self.scheduler.schedule(self._should_throttle_prefills())
+    future = self.model_executor.execute_model(scheduler_output, non_block=True)   <span class="cm"># 异步提交</span>
+    grammar_output = self.scheduler.get_grammar_bitmask(scheduler_output)
+    model_output = self._wait_for_output(future)
+    if model_output is None:
+        model_output = self.model_executor.sample_tokens(grammar_output)            <span class="cm"># 采样单独一步</span>
+    self._process_aborts_queue()
+    engine_core_outputs = self.scheduler.update_from_output(scheduler_output, model_output)
+    return engine_core_outputs, scheduler_output.total_num_scheduled_tokens &gt; 0</code></pre>
+
+<p>对照第 01 课的三行 <code>step()</code>，一一对应：</p>
+
+<table>
+  <thead><tr><th>nano-vllm</th><th>vLLM v1</th><th>差别</th></tr></thead>
+  <tbody>
+    <tr><td><code>scheduler.schedule()</code></td><td><code>scheduler.schedule()</code></td><td>返回 <code>SchedulerOutput</code> 而不是序列列表</td></tr>
+    <tr><td><code>model_runner.call("run")</code></td><td><code>executor.execute_model()</code> + <code>sample_tokens()</code></td><td>前向与采样拆成两步，可异步</td></tr>
+    <tr><td><code>scheduler.postprocess()</code></td><td><code>scheduler.update_from_output()</code></td><td>逻辑等价，名字更准确</td></tr>
+  </tbody>
+</table>
+
+<h3>执行器：<code>Executor</code> + <code>Worker</code></h3>
+
+<pre><code>vllm/v1/executor/
+├── uniproc_executor.py     <span class="cm"># 单进程单卡</span>
+├── multiproc_executor.py   <span class="cm"># 多进程（TP/PP），本机</span>
+└── ray_executor_v2.py      <span class="cm"># 跨机、弹性调度</span></code></pre>
+
+<p><code>Worker</code> 是每张卡上的执行进程（<code>vllm/v1/worker/</code> 有 26 个文件），它持有模型、KV cache 和 CUDA Graph，负责把 <code>SchedulerOutput</code> 变成一次真正的前向。nano-vllm 的 <code>ModelRunner</code> 就是它的极简版。</p>
+
+<h2><span class="num">3</span>三个新概念</h2>
+
+<h3>① 用 token 预算代替「阶段」</h3>
+
+<p>这是 vLLM 与 nano-vllm 最根本的差别。vLLM 调度器开头有一段注释[<a href="https://github.com/vllm-project/vllm/blob/ef9339e/vllm/v1/core/sched/scheduler.py#L708-L717">scheduler.py L708–717</a>]，值得逐字读：</p>
+
+<blockquote>
+<p>“There's no <em>decoding phase</em> nor <em>prefill phase</em> in the scheduler. Each request just has the <code>num_computed_tokens</code> and <code>num_tokens_with_spec</code>. … At each step, the scheduler tries to assign tokens to the requests so that each request's <code>num_computed_tokens</code> can catch up its <code>num_tokens_with_spec</code>.”</p>
+</blockquote>
+
+<p>翻译过来：<strong>每条请求自己有一个「已算 token 数」，调度器每轮只是给它分配一些 token 预算，让它往前追。</strong> 于是：</p>
+
+<ul>
+  <li>chunked prefill 不需要特殊分支——它就是「这轮只追了一部分」。</li>
+  <li>投机解码不需要特殊分支——<code>num_tokens_with_spec</code> 比实际 token 多几个 draft。</li>
+  <li>前缀缓存经专门查找与分配路径后，可通过同一进度账本表达——<code>num_computed_tokens</code> 一开始就不是 0。</li>
+</ul>
+
+<p>nano-vllm 的 <code>is_prefill</code> 布尔值，在 vLLM 里被<strong>每请求的计数器</strong>取代了。这就是「简化版教你概念、生产版给你一般化」的典型例子。</p>
+
+<h3>② <code>SchedulerOutput</code>：调度与执行的契约</h3>
+
+<pre><code><span class="file">vllm/v1/core/sched/output.py · L245–</span>class SchedulerOutput:
+    scheduled_new_reqs: list[NewRequestData]        <span class="cm"># 第一次见到的请求，传完整数据</span>
+    scheduled_cached_reqs: CachedRequestData       <span class="cm"># 见过的，只传 diff</span>
+    num_scheduled_tokens: dict[str, int]           <span class="cm"># 每条请求这轮算多少</span>
+    total_num_scheduled_tokens: int
+    scheduled_spec_decode_tokens: dict[str, list[int]]
+    finished_req_ids: set[str]                     <span class="cm"># 通知 worker 释放状态</span></code></pre>
+
+<p>注意 <code>scheduled_new_reqs</code> / <code>scheduled_cached_reqs</code> 的区分：worker 进程里缓存了请求数据，只有新请求才需要传完整字段。这是<strong>跨进程通信的成本意识</strong>——nano-vllm 用 <code>Sequence.__getstate__</code> 做的是同一件事，只是更粗暴。</p>
+
+<h3>③ 异步：调度不等前向</h3>
+
+<pre><code>future = self.model_executor.execute_model(scheduler_output, non_block=True)
+...
+model_output = self._wait_for_output(future)</code></pre>
+
+<p>提交前向后，主进程<strong>立刻继续</strong>做别的事（算 grammar bitmask、处理 abort 队列），等结果时再阻塞。这就是 <code>step_with_batch_queue</code> 和 <code>async_scheduling</code> 的基础：CPU 侧的调度与 GPU 侧的计算重叠。</p>
+
+<p>nano-vllm 是严格串行的：<code>run()</code> 返回之前什么都做不了。对 1.5 秒一次 decode 的小模型无所谓，对 7B 以上、每次 decode 几十毫秒的服务，CPU 空转就是浪费。</p>
+
+<h2><span class="num">4</span>一张映射表</h2>
+
+<table>
+  <thead><tr><th>nano-vllm</th><th>vLLM v1</th><th>职责</th></tr></thead>
+  <tbody>
+    <tr><td><code>LLMEngine.generate</code></td><td><code>LLMEngine.step</code> + <code>AsyncLLM</code></td><td>对外接口、流式输出</td></tr>
+    <tr><td><code>step()</code></td><td><code>EngineCore.step()</code></td><td>一轮调度 → 执行 → 回写</td></tr>
+    <tr><td><code>Scheduler</code>（92 行）</td><td><code>Scheduler</code>（3869 行）</td><td>决定这轮算什么</td></tr>
+    <tr><td><code>BlockManager</code></td><td><code>KVCacheManager</code> + <code>BlockPool</code> + <code>KVCacheCoordinator</code></td><td>块分配、前缀缓存、多 KV group</td></tr>
+    <tr><td><code>ModelRunner</code></td><td><code>Worker</code> + <code>GPUModelRunner</code></td><td>组 batch、跑前向</td></tr>
+    <tr><td><code>Sequence</code></td><td><code>Request</code></td><td>请求状态</td></tr>
+    <tr><td>共享内存 + Event</td><td><code>EngineCoreClient</code>（ZMQ / IPC）+ <code>MPClient</code></td><td>前端 ↔ 引擎核通信</td></tr>
+    <tr><td><code>tensor_parallel_size</code></td><td>并行配置（TP/PP/DP/EP）</td><td>分布式策略</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">5</span>为什么要有 <code>EngineCoreProc</code></h2>
+
+<p>单进程版本（<code>EngineCore</code>）已经完整，但生产部署时前端和引擎核通常<strong>分进程</strong>：</p>
+
+<ul>
+  <li>前端要处理 HTTP、序列化、多租户，Python GIL 会被它占住。</li>
+  <li>引擎核要独占 CPU 循环，不受前端抖动影响。</li>
+  <li>崩溃隔离：前端挂了不影响正在跑的请求（反之亦然）。</li>
+</ul>
+
+<p><code>EngineCoreProc</code>[<a href="https://github.com/vllm-project/vllm/blob/ef9339e/vllm/v1/engine/core.py#L1299">core.py L1299</a>] 因此有一个 <code>run_busy_loop()</code>：不断从输入队列取请求、执行 <code>step</code>、把输出推回队列。这和 nano-vllm 里 worker 的 <code>loop()</code> 思路一致，只是通道从共享内存换成了 ZMQ。</p>
+
+<h2><span class="num">6</span>练习 A · 找对应关系</h2>
+
+<p>打开本地 <code>vendor/vllm/</code>，找到下面三样东西在 vLLM 里的位置（提示：都在 <code>vllm/v1/</code> 下）：</p>
+
+<ol>
+  <li>nano-vllm 的 <code>block_manager.can_allocate</code> 对应哪个方法？</li>
+  <li>nano-vllm 的 <code>scheduler.postprocess</code> 对应哪个方法？</li>
+  <li>nano-vllm 的 <code>model_runner.call</code>（跨进程调方法）对应哪一层？</li>
+</ol>
+
+<details>
+  <summary>展开：参考答案</summary>
+  <p>① <code>KVCacheManager.get_computed_blocks()</code>（找前缀命中）+ <code>allocate_slots()</code>（真正分配）。</p>
+  <p>② <code>Scheduler.update_from_output()</code>。</p>
+  <p>③ <code>Executor.execute_model()</code> → <code>Worker</code>；跨进程的「调方法」被换成了「执行一个 <code>SchedulerOutput</code>」。</p>
+</details>
+
+<h2><span class="num">7</span>练习 B · 闭卷测验</h2>
+
+<div class="quiz" data-quiz="vllm-arch"></div>
+
+<h2><span class="num">8</span>面试复述卡</h2>
+
+<p><strong>「vLLM v1 和上一代（或教学实现）最大的区别是什么？」</strong></p>
+
+<details>
+  <summary>展开：30 秒版本</summary>
+  <p>「v1用每请求进度与token预算统一表达prefill、decode和draft验证，但仍有模型与阶段相关分支。num_computed_tokens在异步时可能含乐观在途工作，返回后还需修正。前缀查询、KV分配、forward与采样分别有自己的契约。」详见<a href="0027-vllm-token-ledger.html">27课</a>。</p>
+</details>
+
+<div class="ask-teacher">
+  <p><strong>建议你先做一件事</strong>：在 <code>vendor/vllm/vllm/v1/core/sched/scheduler.py</code> 里搜 <code>def schedule</code>，只读函数开头的注释和前 120 行。读不懂没关系，下一课我们逐段讲。</p>
+</div>
+
+<footer class="lesson-footer">
+  <h3>主源与延伸</h3>
+  <ul>
+    <li><strong>主源</strong>：<code>vllm/v1/engine/core.py</code> 的 <code>EngineCore.step</code>（L710–740）+ <code>scheduler.py</code> L706–730 的注释。</li>
+    <li>延伸：vLLM 官方文档的 <em>Architecture Overview</em>。</li>
+    <li>术语：<a href="../reference/glossary.html#schedule">Continuous batching</a>。</li>
+    <li>下一课：<strong>09 · vLLM 的调度与 KV 管理</strong>——token 预算怎么分、抢占怎么选、前缀缓存怎么淘汰。</li>
+  </ul>
+</footer>
+
+</div>
+<script src="../assets/quiz.js?v=2"></script>
+<script>
+CourseQuiz.mount('[data-quiz="vllm-arch"]', {
+  questions: [
+    {
+      q: 'vLLM v1 调度器用每请求的 `num_computed_tokens` 代替了：',
+      options: [
+        '全局的 prefill / decode 阶段',
+        '模型权重的分片方式',
+        '分词器的批处理策略',
+        'GPU 的显存分配表'
+      ],
+      answer: 0,
+      why: ' 调度器不再关心「这轮是 prefill 还是 decode」，只让每条请求的已算 token 数追赶目标 token 数。'
+    },
+    {
+      q: '`execute_model(non_block=True)` 的作用是：',
+      options: [
+        '提交前向但立即返回 future',
+        '跳过前向直接采样',
+        '把前向放到 CPU 上执行',
+        '关闭 CUDA Graph 优化'
+      ],
+      answer: 0,
+      why: ' 异步提交让 CPU 侧可以继续做 grammar 计算、abort 处理，等需要结果时再 `wait`。'
+    },
+    {
+      q: 'vLLM 把 `sample_tokens` 从模型前向里拆出来，主要是为了：',
+      options: [
+        '支持异步与结构化输出',
+        '减少模型参数量',
+        '避免使用 CUDA Graph',
+        '让 prefill 不再采样'
+      ],
+      answer: 0,
+      why: ' 采样要等 grammar bitmask（结构化输出），还要能和下一步调度重叠，所以单独成步。'
+    },
+    {
+      q: '`SchedulerOutput` 区分 new / cached 请求，是为了：',
+      options: [
+        '减少跨进程传输的数据量',
+        '区分优先级高低',
+        '避免重复计算 KV',
+        '支持多模态输入'
+      ],
+      answer: 0,
+      why: ' worker 已经缓存过的请求只需要传 diff（这轮算多少 token），不必重传完整 prompt。'
+    },
+    {
+      q: 'nano-vllm 的 `ModelRunner` 在 vLLM 里对应：',
+      options: [
+        'Worker 与 GPUModelRunner',
+        'Scheduler 与 BlockPool',
+        'LLMEngine 与 AsyncLLM',
+        'Request 与 Sequence'
+      ],
+      answer: 0,
+      why: ' 每张卡一个 Worker 进程，里面跑 GPUModelRunner，负责组 batch 与执行前向。'
+    }
+  ]
+});
+</script>
+<script src="../assets/highlight.js?v=2"></script>
+<script src="../assets/lesson-ui.js?v=2"></script>
+</body>
+</html>

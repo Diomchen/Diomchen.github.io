@@ -1,0 +1,66 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>nano-sequence</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>nano-sequence</h1><p class="source-note">nano-vllm/nanovllm/engine/sequence.py · bb823b3 · L14–79 · <a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/engine/sequence.py#L14-L79">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>nano-vllm · MIT</strong><p>Copyright (c) 2025 Xingkai Yu。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/nano-vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L14"><a class="line-no" href="#L14">14</a>class Sequence:</span>
+<span class="source-line" id="L15"><a class="line-no" href="#L15">15</a>    block_size = 256</span>
+<span class="source-line" id="L16"><a class="line-no" href="#L16">16</a>    counter = count()</span>
+<span class="source-line" id="L17"><a class="line-no" href="#L17">17</a></span>
+<span class="source-line" id="L18"><a class="line-no" href="#L18">18</a>    def __init__(self, token_ids: list[int], sampling_params = SamplingParams()):</span>
+<span class="source-line" id="L19"><a class="line-no" href="#L19">19</a>        self.seq_id = next(Sequence.counter)</span>
+<span class="source-line" id="L20"><a class="line-no" href="#L20">20</a>        self.status = SequenceStatus.WAITING</span>
+<span class="source-line" id="L21"><a class="line-no" href="#L21">21</a>        self.token_ids = copy(token_ids)</span>
+<span class="source-line" id="L22"><a class="line-no" href="#L22">22</a>        self.last_token = token_ids[-1]</span>
+<span class="source-line" id="L23"><a class="line-no" href="#L23">23</a>        self.num_tokens = len(self.token_ids)</span>
+<span class="source-line" id="L24"><a class="line-no" href="#L24">24</a>        self.num_prompt_tokens = len(token_ids)</span>
+<span class="source-line" id="L25"><a class="line-no" href="#L25">25</a>        self.num_cached_tokens = 0</span>
+<span class="source-line" id="L26"><a class="line-no" href="#L26">26</a>        self.num_scheduled_tokens = 0</span>
+<span class="source-line" id="L27"><a class="line-no" href="#L27">27</a>        self.is_prefill = True</span>
+<span class="source-line" id="L28"><a class="line-no" href="#L28">28</a>        self.block_table = []</span>
+<span class="source-line" id="L29"><a class="line-no" href="#L29">29</a>        self.temperature = sampling_params.temperature</span>
+<span class="source-line" id="L30"><a class="line-no" href="#L30">30</a>        self.max_tokens = sampling_params.max_tokens</span>
+<span class="source-line" id="L31"><a class="line-no" href="#L31">31</a>        self.ignore_eos = sampling_params.ignore_eos</span>
+<span class="source-line" id="L32"><a class="line-no" href="#L32">32</a></span>
+<span class="source-line" id="L33"><a class="line-no" href="#L33">33</a>    def __len__(self):</span>
+<span class="source-line" id="L34"><a class="line-no" href="#L34">34</a>        return self.num_tokens</span>
+<span class="source-line" id="L35"><a class="line-no" href="#L35">35</a></span>
+<span class="source-line" id="L36"><a class="line-no" href="#L36">36</a>    def __getitem__(self, key):</span>
+<span class="source-line" id="L37"><a class="line-no" href="#L37">37</a>        return self.token_ids[key]</span>
+<span class="source-line" id="L38"><a class="line-no" href="#L38">38</a></span>
+<span class="source-line" id="L39"><a class="line-no" href="#L39">39</a>    @property</span>
+<span class="source-line" id="L40"><a class="line-no" href="#L40">40</a>    def is_finished(self):</span>
+<span class="source-line" id="L41"><a class="line-no" href="#L41">41</a>        return self.status == SequenceStatus.FINISHED</span>
+<span class="source-line" id="L42"><a class="line-no" href="#L42">42</a></span>
+<span class="source-line" id="L43"><a class="line-no" href="#L43">43</a>    @property</span>
+<span class="source-line" id="L44"><a class="line-no" href="#L44">44</a>    def num_completion_tokens(self):</span>
+<span class="source-line" id="L45"><a class="line-no" href="#L45">45</a>        return self.num_tokens - self.num_prompt_tokens</span>
+<span class="source-line" id="L46"><a class="line-no" href="#L46">46</a></span>
+<span class="source-line" id="L47"><a class="line-no" href="#L47">47</a>    @property</span>
+<span class="source-line" id="L48"><a class="line-no" href="#L48">48</a>    def prompt_token_ids(self):</span>
+<span class="source-line" id="L49"><a class="line-no" href="#L49">49</a>        return self.token_ids[:self.num_prompt_tokens]</span>
+<span class="source-line" id="L50"><a class="line-no" href="#L50">50</a></span>
+<span class="source-line" id="L51"><a class="line-no" href="#L51">51</a>    @property</span>
+<span class="source-line" id="L52"><a class="line-no" href="#L52">52</a>    def completion_token_ids(self):</span>
+<span class="source-line" id="L53"><a class="line-no" href="#L53">53</a>        return self.token_ids[self.num_prompt_tokens:]</span>
+<span class="source-line" id="L54"><a class="line-no" href="#L54">54</a></span>
+<span class="source-line" id="L55"><a class="line-no" href="#L55">55</a>    @property</span>
+<span class="source-line" id="L56"><a class="line-no" href="#L56">56</a>    def num_blocks(self):</span>
+<span class="source-line" id="L57"><a class="line-no" href="#L57">57</a>        return (self.num_tokens + self.block_size - 1) // self.block_size</span>
+<span class="source-line" id="L58"><a class="line-no" href="#L58">58</a></span>
+<span class="source-line" id="L59"><a class="line-no" href="#L59">59</a>    @property</span>
+<span class="source-line" id="L60"><a class="line-no" href="#L60">60</a>    def last_block_num_tokens(self):</span>
+<span class="source-line" id="L61"><a class="line-no" href="#L61">61</a>        return self.num_tokens - (self.num_blocks - 1) * self.block_size</span>
+<span class="source-line" id="L62"><a class="line-no" href="#L62">62</a></span>
+<span class="source-line" id="L63"><a class="line-no" href="#L63">63</a>    def block(self, i):</span>
+<span class="source-line" id="L64"><a class="line-no" href="#L64">64</a>        assert 0 &lt;= i &lt; self.num_blocks</span>
+<span class="source-line" id="L65"><a class="line-no" href="#L65">65</a>        return self.token_ids[i*self.block_size: (i+1)*self.block_size]</span>
+<span class="source-line" id="L66"><a class="line-no" href="#L66">66</a></span>
+<span class="source-line" id="L67"><a class="line-no" href="#L67">67</a>    def append_token(self, token_id: int):</span>
+<span class="source-line" id="L68"><a class="line-no" href="#L68">68</a>        self.token_ids.append(token_id)</span>
+<span class="source-line" id="L69"><a class="line-no" href="#L69">69</a>        self.last_token = token_id</span>
+<span class="source-line" id="L70"><a class="line-no" href="#L70">70</a>        self.num_tokens += 1</span>
+<span class="source-line" id="L71"><a class="line-no" href="#L71">71</a></span>
+<span class="source-line" id="L72"><a class="line-no" href="#L72">72</a>    def __getstate__(self):</span>
+<span class="source-line" id="L73"><a class="line-no" href="#L73">73</a>        last_state = self.last_token if not self.is_prefill else self.token_ids</span>
+<span class="source-line" id="L74"><a class="line-no" href="#L74">74</a>        return (self.num_tokens, self.num_prompt_tokens, self.num_cached_tokens, self.num_scheduled_tokens, self.block_table, last_state)</span>
+<span class="source-line" id="L75"><a class="line-no" href="#L75">75</a></span>
+<span class="source-line" id="L76"><a class="line-no" href="#L76">76</a>    def __setstate__(self, state):</span>
+<span class="source-line" id="L77"><a class="line-no" href="#L77">77</a>        self.num_tokens, self.num_prompt_tokens, self.num_cached_tokens, self.num_scheduled_tokens, self.block_table, last_state = state</span>
+<span class="source-line" id="L78"><a class="line-no" href="#L78">78</a>        if isinstance(last_state, list):</span>
+<span class="source-line" id="L79"><a class="line-no" href="#L79">79</a>            self.token_ids = last_state</span></code></pre></main></body></html>

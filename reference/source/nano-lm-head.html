@@ -1,0 +1,31 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>nano-lm-head</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>nano-lm-head</h1><p class="source-note">nano-vllm/nanovllm/models/qwen3.py · bb823b3 · L186–216 · <a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/models/qwen3.py#L186-L216">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>nano-vllm · MIT</strong><p>Copyright (c) 2025 Xingkai Yu。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/nano-vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L186"><a class="line-no" href="#L186">186</a>class Qwen3ForCausalLM(nn.Module):</span>
+<span class="source-line" id="L187"><a class="line-no" href="#L187">187</a>    packed_modules_mapping = {</span>
+<span class="source-line" id="L188"><a class="line-no" href="#L188">188</a>        &quot;q_proj&quot;: (&quot;qkv_proj&quot;, &quot;q&quot;),</span>
+<span class="source-line" id="L189"><a class="line-no" href="#L189">189</a>        &quot;k_proj&quot;: (&quot;qkv_proj&quot;, &quot;k&quot;),</span>
+<span class="source-line" id="L190"><a class="line-no" href="#L190">190</a>        &quot;v_proj&quot;: (&quot;qkv_proj&quot;, &quot;v&quot;),</span>
+<span class="source-line" id="L191"><a class="line-no" href="#L191">191</a>        &quot;gate_proj&quot;: (&quot;gate_up_proj&quot;, 0),</span>
+<span class="source-line" id="L192"><a class="line-no" href="#L192">192</a>        &quot;up_proj&quot;: (&quot;gate_up_proj&quot;, 1),</span>
+<span class="source-line" id="L193"><a class="line-no" href="#L193">193</a>    }</span>
+<span class="source-line" id="L194"><a class="line-no" href="#L194">194</a></span>
+<span class="source-line" id="L195"><a class="line-no" href="#L195">195</a>    def __init__(</span>
+<span class="source-line" id="L196"><a class="line-no" href="#L196">196</a>        self,</span>
+<span class="source-line" id="L197"><a class="line-no" href="#L197">197</a>        config: Qwen3Config</span>
+<span class="source-line" id="L198"><a class="line-no" href="#L198">198</a>    ) -&gt; None:</span>
+<span class="source-line" id="L199"><a class="line-no" href="#L199">199</a>        super().__init__()</span>
+<span class="source-line" id="L200"><a class="line-no" href="#L200">200</a>        self.model = Qwen3Model(config)</span>
+<span class="source-line" id="L201"><a class="line-no" href="#L201">201</a>        self.lm_head = ParallelLMHead(config.vocab_size, config.hidden_size)</span>
+<span class="source-line" id="L202"><a class="line-no" href="#L202">202</a>        if config.tie_word_embeddings:</span>
+<span class="source-line" id="L203"><a class="line-no" href="#L203">203</a>            self.lm_head.weight.data = self.model.embed_tokens.weight.data</span>
+<span class="source-line" id="L204"><a class="line-no" href="#L204">204</a></span>
+<span class="source-line" id="L205"><a class="line-no" href="#L205">205</a>    def forward(</span>
+<span class="source-line" id="L206"><a class="line-no" href="#L206">206</a>        self,</span>
+<span class="source-line" id="L207"><a class="line-no" href="#L207">207</a>        input_ids: torch.Tensor,</span>
+<span class="source-line" id="L208"><a class="line-no" href="#L208">208</a>        positions: torch.Tensor,</span>
+<span class="source-line" id="L209"><a class="line-no" href="#L209">209</a>    ) -&gt; torch.Tensor:</span>
+<span class="source-line" id="L210"><a class="line-no" href="#L210">210</a>        return self.model(input_ids, positions)</span>
+<span class="source-line" id="L211"><a class="line-no" href="#L211">211</a></span>
+<span class="source-line" id="L212"><a class="line-no" href="#L212">212</a>    def compute_logits(</span>
+<span class="source-line" id="L213"><a class="line-no" href="#L213">213</a>        self,</span>
+<span class="source-line" id="L214"><a class="line-no" href="#L214">214</a>        hidden_states: torch.Tensor,</span>
+<span class="source-line" id="L215"><a class="line-no" href="#L215">215</a>    ) -&gt; torch.Tensor:</span>
+<span class="source-line" id="L216"><a class="line-no" href="#L216">216</a>        return self.lm_head(hidden_states)</span></code></pre></main></body></html>

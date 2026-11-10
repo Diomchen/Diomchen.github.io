@@ -1,0 +1,20 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>vllm-advance</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>vllm-advance</h1><p class="source-note">vllm/vllm/v1/core/sched/scheduler.py · ef9339e · L1888–1907 · <a href="https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/core/sched/scheduler.py#L1888-L1907">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>vllm · Apache-2.0</strong><p>Copyright contributors to the vLLM project。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L1888"><a class="line-no" href="#L1888">1888</a>        # Advance the number of computed tokens for the request AFTER</span>
+<span class="source-line" id="L1889"><a class="line-no" href="#L1889">1889</a>        # the request is scheduled.</span>
+<span class="source-line" id="L1890"><a class="line-no" href="#L1890">1890</a>        # 1. The scheduler_output of the current step has to include the</span>
+<span class="source-line" id="L1891"><a class="line-no" href="#L1891">1891</a>        #    original number of scheduled tokens to determine input IDs.</span>
+<span class="source-line" id="L1892"><a class="line-no" href="#L1892">1892</a>        # 2. Advance the number of computed tokens here allowing us to</span>
+<span class="source-line" id="L1893"><a class="line-no" href="#L1893">1893</a>        #    schedule the prefill request again immediately in the next</span>
+<span class="source-line" id="L1894"><a class="line-no" href="#L1894">1894</a>        #    scheduling step.</span>
+<span class="source-line" id="L1895"><a class="line-no" href="#L1895">1895</a>        # 3. If some tokens (e.g. spec tokens) are rejected later, the number of</span>
+<span class="source-line" id="L1896"><a class="line-no" href="#L1896">1896</a>        #    computed tokens will be adjusted in update_from_output.</span>
+<span class="source-line" id="L1897"><a class="line-no" href="#L1897">1897</a>        num_scheduled_tokens = scheduler_output.num_scheduled_tokens</span>
+<span class="source-line" id="L1898"><a class="line-no" href="#L1898">1898</a>        for req_id, num_scheduled_token in num_scheduled_tokens.items():</span>
+<span class="source-line" id="L1899"><a class="line-no" href="#L1899">1899</a>            request = self.requests[req_id]</span>
+<span class="source-line" id="L1900"><a class="line-no" href="#L1900">1900</a>            request.num_computed_tokens += num_scheduled_token</span>
+<span class="source-line" id="L1901"><a class="line-no" href="#L1901">1901</a>            request.num_in_flight_tokens += num_scheduled_token</span>
+<span class="source-line" id="L1902"><a class="line-no" href="#L1902">1902</a>            if self.defer_block_free:</span>
+<span class="source-line" id="L1903"><a class="line-no" href="#L1903">1903</a>                # Record the in-flight step, to fence deferred block freeing.</span>
+<span class="source-line" id="L1904"><a class="line-no" href="#L1904">1904</a>                request.last_sched_seq = self.sched_step_seq</span>
+<span class="source-line" id="L1905"><a class="line-no" href="#L1905">1905</a>            request.is_prefill_chunk = request.num_computed_tokens &lt; (</span>
+<span class="source-line" id="L1906"><a class="line-no" href="#L1906">1906</a>                request.num_tokens + request.num_output_placeholders</span>
+<span class="source-line" id="L1907"><a class="line-no" href="#L1907">1907</a>            )</span></code></pre></main></body></html>

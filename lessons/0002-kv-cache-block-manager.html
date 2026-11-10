@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>02 · KV cache 与 block manager</title>
+<link rel="stylesheet" href="../assets/course.css?v=2">
+</head>
+<body>
+<div class="page">
+
+<nav class="lesson-nav">
+  <a href="0001-engine-loop.html">← 01 引擎骨架</a>
+  <a class="home" href="../index.html">课程索引</a>
+  <a class="right" href="0003-scheduler-preemption.html">03 调度与抢占 →</a>
+</nav>
+
+<header>
+  <p class="kicker">课程 02 · 显存管理</p>
+  <h1>显存里的那本「页表」</h1>
+  <p class="dek">KV cache 为什么必须分页、引用计数在保护什么、前缀哈希怎么做到「算过的不再算」。这一课读完，<code>block_manager.py</code> 的 120 行就没有黑盒了。</p>
+  <p class="meta">
+    <span>约 50 分钟</span>
+    <span>源码：<code>engine/block_manager.py</code>（120 行）</span>
+    <span>前置：01</span>
+  </p>
+</header>
+
+<div class="lesson-nav no-print">
+  <a href="../reference/glossary.html#memory">术语：Block / Block table / ref_count</a>
+</div>
+
+<h2><span class="num">1</span>先看看不分页会怎样</h2>
+
+<p>decode 每生成一个 token，都要读完整条序列的 K/V。这块缓存必须在显存里常驻，而且随生成不断变长。最直接的做法是：<strong>给每个请求预留 <code>max_model_len</code> 的连续显存</strong>。</p>
+
+<p>三个问题会立刻出现：</p>
+
+<ul>
+  <li><strong>内部碎片</strong>：请求实际只生成 200 个 token，却占了 4096 的坑。上节课算过，4096 个 token 是 448 MiB——一条短请求就吃掉半张卡的 KV 预算。</li>
+  <li><strong>外部碎片</strong>：请求结束释放后，显存里留下大小不一的空洞，下一个请求要的长度可能刚好塞不进去。</li>
+  <li><strong>无法共享</strong>：两个请求用同一段系统提示词，KV 明明一模一样，却各自存了一份。</li>
+</ul>
+
+<p>PagedAttention 的答案借自操作系统：<strong>把 KV 切成固定大小的块，用一张表把「逻辑块」映射到任意物理块</strong>[<a href="https://arxiv.org/abs/2309.06180">SOSP'23 §3</a>]。</p>
+
+<table>
+  <thead><tr><th>层</th><th>操作系统</th><th>nano-vllm</th></tr></thead>
+  <tbody>
+    <tr><td>分配单位</td><td>页（4 KiB）</td><td>block（默认 256 token，28 MiB）</td></tr>
+    <tr><td>地址映射</td><td>页表</td><td><code>seq.block_table</code></td></tr>
+    <tr><td>共享</td><td>写时复制 / 共享页</td><td><code>ref_count</code> + 前缀哈希</td></tr>
+    <tr><td>回收</td><td>引用归零回收</td><td><code>ref_count == 0</code> 回 free 池</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">2</span>三个数据结构</h2>
+
+<pre><code><span class="file">nanovllm/engine/block_manager.py · L8–33</span>class Block:
+    def __init__(self, block_id):
+        self.block_id = block_id
+        self.ref_count = 0        <span class="cm"># 几条序列在用它</span>
+        self.hash = -1            <span class="cm"># 满块才有哈希</span>
+        self.token_ids = []       <span class="cm"># 存一份内容，用来防哈希碰撞</span>
+
+class BlockManager:
+    def __init__(self, num_blocks, block_size):
+        self.blocks = [Block(i) for i in range(num_blocks)]
+        self.hash_to_block_id = dict()      <span class="cm"># 前缀哈希 → 物理块</span>
+        self.free_block_ids = deque(range(num_blocks))
+        self.used_block_ids = set()</code></pre>
+
+<p>三个结构各管一件事：</p>
+
+<ul>
+  <li><code>free_block_ids</code>：空闲块池，<code>popleft</code> 分配、<code>append</code> 归还——<strong>FIFO 而不是随机</strong>，让刚释放的块晚点被复用，减少「刚释放就被覆盖」的概率。</li>
+  <li><code>used_block_ids</code>：哪些块正在被引用（即使 <code>ref_count</code> 变成 0，也要先从 used 移除才算真空闲）。</li>
+  <li><code>hash_to_block_id</code>：前缀缓存的索引，是「算过的不再算」的全部秘密。</li>
+</ul>
+
+<div class="key">
+  <span class="label">关键洞察</span>
+  <p>分页解决的是<strong>碎片</strong>，哈希解决的是<strong>重复</strong>。两个问题经常被混为一谈——前者靠 block 切分，后者靠 <code>hash_to_block_id</code> + <code>ref_count</code>，缺一不可。</p>
+</div>
+
+<h2><span class="num">3</span>一条序列怎么拿到块</h2>
+
+<p>请求进来时，调度器先问：<em>这条序列的前缀，有多少块已经在缓存里了？</em> 这就是 <code>can_allocate()</code>[<a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3/nanovllm/engine/block_manager.py#L58-L73">L58–73</a>]：</p>
+
+<pre><code>def can_allocate(self, seq):
+    h = -1
+    num_cached_blocks = 0
+    num_new_blocks = seq.num_blocks
+    for i in range(seq.num_blocks - 1):          <span class="cm"># 注意：-1</span>
+        token_ids = seq.block(i)
+        h = self.compute_hash(token_ids, h)      <span class="cm"># 链式哈希</span>
+        block_id = self.hash_to_block_id.get(h, -1)
+        if block_id == -1 or self.blocks[block_id].token_ids != token_ids:
+            break                                <span class="cm"># 没命中，或哈希碰撞</span>
+        num_cached_blocks += 1
+        if block_id in self.used_block_ids:
+            num_new_blocks -= 1                  <span class="cm"># 这块已经在用，不用新分配</span>
+    if len(self.free_block_ids) &lt; num_new_blocks:
+        return -1                                <span class="cm"># 显存不够，调度器会跳过这条序列</span>
+    return num_cached_blocks</code></pre>
+
+<p>三个细节值得停下来看：</p>
+
+<ol>
+  <li><strong>为什么是 <code>num_blocks - 1</code>？</strong> 最后一块可能没填满。半满的块内容还会变，不能登记成前缀，也不能被别的序列复用。</li>
+  <li><strong>为什么哈希要带 <code>prefix</code>？</strong> 只看本块内容的哈希，会让「A,B」和「C,B」里的 B 撞成同一个键。把前一块的哈希混进来，等于给每个块一个「路径前缀」，链式定位。</li>
+  <li><strong>为什么还要比对 <code>token_ids</code>？</strong> 64 位哈希有碰撞概率。生产系统可能选择信任哈希，但教学实现用一次列表比较换来正确性——反正只在命中时才比较。</li>
+</ol>
+
+<p>拿到 <code>num_cached_blocks</code> 后，<code>allocate()</code>[<a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3/nanovllm/engine/block_manager.py#L75-L92">L75–92</a>] 分两段做：命中的块只加引用，剩下的从空闲池里取新块。</p>
+
+<pre><code>def allocate(self, seq, num_cached_blocks):
+    for i in range(num_cached_blocks):
+        block_id = self.hash_to_block_id[h]
+        if block_id in self.used_block_ids:
+            self.blocks[block_id].ref_count += 1     <span class="cm"># 共享：只加计数</span>
+        else:
+            self.blocks[block_id].ref_count = 1      <span class="cm"># 缓存里还在，但没人用——直接认领</span>
+            self.free_block_ids.remove(block_id)
+            self.used_block_ids.add(block_id)
+        seq.block_table.append(block_id)
+    for i in range(num_cached_blocks, seq.num_blocks):
+        seq.block_table.append(self._allocate_block())
+    seq.num_cached_tokens = num_cached_blocks * self.block_size</code></pre>
+
+<p>最后一行是整个 prefix cache 的记账核心：<code>num_cached_tokens</code> 告诉调度器和 <code>prepare_prefill</code>——<strong>这些 token 的 KV 已经在显存里了，只需要算后面的</strong>。</p>
+
+<h2><span class="num">4</span>引用计数在保护什么</h2>
+
+<p>假设两条请求共享同一段 800 token 的系统提示词（3 个满块）。第二个请求命中缓存后，只做了 <code>ref_count += 1</code>，没有复制任何数据。现在第一个请求结束了，调用 <code>deallocate()</code>：</p>
+
+<pre><code>def deallocate(self, seq):
+    for block_id in reversed(seq.block_table):
+        self.blocks[block_id].ref_count -= 1
+        if self.blocks[block_id].ref_count == 0:
+            self._deallocate_block(block_id)     <span class="cm"># 真的没人用了，回 free 池</span>
+    seq.num_cached_tokens = 0
+    seq.block_table.clear()</code></pre>
+
+<p>如果 <code>ref_count</code> 是 2，减到 1 就停手——第二个请求的 KV 毫发无损。这就是「共享前缀」不需要任何数据拷贝的原因。</p>
+
+<div class="warn">
+  <span class="label">易错点</span>
+  <p><code>deallocate</code> 会把 <code>num_cached_tokens</code> 清零，但<strong>不会删除哈希表里的条目</strong>。块的哈希和被 <code>_allocate_block</code> 复用时会清除[<a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3/nanovllm/engine/block_manager.py#L43-L51">L43–51</a>]，所以「哈希指向一个已释放的块」是合法状态：下次命中时按「缓存还在但没人用」认领。</p>
+</div>
+
+<h2><span class="num">5</span>哈希是何时写进去的</h2>
+
+<p>分配时并不写哈希——因为块还没算过，内容还不存在。真正登记发生在 <code>postprocess</code> 里每步调用的 <code>hash_blocks()</code>[<a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3/nanovllm/engine/block_manager.py#L110-L120">L110–120</a>]：</p>
+
+<pre><code>def hash_blocks(self, seq):
+    start = seq.num_cached_tokens // self.block_size
+    end = (seq.num_cached_tokens + seq.num_scheduled_tokens) // self.block_size
+    if start == end: return                       <span class="cm"># 这轮没填满新块</span>
+    h = self.blocks[seq.block_table[start - 1]].hash if start &gt; 0 else -1
+    for i in range(start, end):
+        block = self.blocks[seq.block_table[i]]
+        h = self.compute_hash(seq.block(i), h)
+        block.update(h, seq.block(i))
+        self.hash_to_block_id[h] = block.block_id</code></pre>
+
+<p>它只处理「这一轮刚好被填满」的块：<code>start</code> 是已缓存的块数，<code>end</code> 是算完这轮之后的块数。两者相等说明没跨过块边界，直接返回。跨过了，就把新填满的块依次登记，哈希链从上一次的 <code>h</code> 继续。</p>
+
+<p>这就是为什么前缀缓存对<strong>相同系统提示词</strong>特别有效：所有请求的第一块内容相同、链式哈希相同，第二块、第三块也跟着相同，一路命中到分歧点为止。</p>
+
+<h2><span class="num">6</span>block_size 为什么是 256</h2>
+
+<p>这是个纯粹的工程取舍，面试里常被追问：</p>
+
+<ul>
+  <li><strong>块越小</strong>：内部碎片越少（最多浪费 <code>block_size - 1</code> 个 token 的空间），但块表变长、哈希表条目变多、<code>block_table</code> 这个二维张量变宽，注意力 kernel 的间接寻址开销上升。</li>
+  <li><strong>块越大</strong>：kernel 更高效，但一条 300 token 的请求也要占 256 的整数倍，浪费更明显。</li>
+</ul>
+
+<p>vLLM 默认 <code>block_size=16</code>，nano-vllm 用 256，因为它的注意力走 FlashAttention 的 <code>block_table</code> 参数，而 FlashAttention 的块粒度本来就是 256[<a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3/nanovllm/config.py#L17-L17">config.py L17</a>]。<strong>块大小要和底层 kernel 的粒度对齐</strong>，否则要么多一层重排，要么浪费。</p>
+
+<div class="aside">
+  <span class="label">和面试官聊这个</span>
+  <p>不要说「256 是随便选的」。正确说法：块大小要在<strong>碎片率、块表开销、kernel 对齐</strong>三者之间取平衡；nano-vllm 选 256 是为了直接喂给 FlashAttention 的 block table。</p>
+</div>
+
+<h2><span class="num">7</span>练习 A · 手算一张块表</h2>
+
+<p>设 <code>block_size = 4</code>，空闲池里有块 <code>[0,1,2,3,4]</code>，当前无缓存。</p>
+
+<p><strong>序列 A</strong> 来了，长度 10（含 prompt 8 + 已生成 2）。请写出它的 <code>block_table</code>、需要的块数、以及哪些块会被 <code>hash_blocks</code> 登记。</p>
+
+<details>
+  <summary>展开：答案与推理</summary>
+  <p><code>num_blocks = ceil(10/4) = 3</code>，块表 <code>[0,1,2]</code>。第 0、1 块是满的（8 个 token），第 2 块只有 2 个 token。</p>
+  <p><code>can_allocate</code> 会扫到第 1 块就停（<code>range(num_blocks-1) = range(2)</code>），两块都没命中，返回 0。分配 3 个新块。</p>
+  <p>这轮 prefill 结束后 <code>num_cached_tokens = 10</code>，<code>end = 10//4 = 2</code>，<code>start = 0</code>，所以登记块 0 和块 1——<strong>第 2 块不登记</strong>，因为它只有 2 个 token，还没满。</p>
+</details>
+
+<h2><span class="num">8</span>练习 B · 闭卷测验</h2>
+
+<div class="quiz" data-quiz="block-manager"></div>
+
+<h2><span class="num">9</span>练习 C · 代码寻宝</h2>
+
+<details>
+  <summary>1. <code>_allocate_block</code> 的 L47–48 在删什么？为什么必须删？</summary>
+  <p>如果这个物理块之前带着哈希（被释放过但哈希还在表里），而 <code>hash_to_block_id</code> 仍然指向它，就要先删掉这条映射。否则哈希表会指向一块马上要被新内容覆盖的显存——前缀缓存就变成了「返回错误数据」。</p>
+</details>
+
+<details>
+  <summary>2. 为什么 <code>free_block_ids</code> 是 <code>deque</code> 且用 <code>popleft</code>，而不是 <code>list.pop()</code>？</summary>
+  <p>FIFO 让块按释放顺序轮转复用，延长每个块的「冷却时间」。若总是复用最近释放的块，刚被别的序列释放的块可能立刻被覆盖，而它的哈希还没来得及被任何人命中。这是缓存系统里常见的抗抖动技巧。</p>
+</details>
+
+<details>
+  <summary>3. <code>deallocate</code> 里为什么用 <code>reversed(seq.block_table)</code>？</summary>
+  <p>释放顺序不影响正确性，但倒序有一个好处：最后一块（部分填充、没有哈希）最先被处理，物理上相邻的块倾向于晚一点进入空闲池，对后续大块分配更友好。属于实现习惯，答「不影响正确性」就算对。</p>
+</details>
+
+<h2><span class="num">10</span>面试复述卡</h2>
+
+<p><strong>「vLLM 的 PagedAttention 到底解决了什么？」</strong></p>
+
+<details>
+  <summary>展开：30 秒版本</summary>
+  <p>「它把 KV cache 从『每个请求预留一大段连续显存』改成『按固定大小的 block 分配，用块表做逻辑到物理的映射』。这样内部碎片最多浪费一个块，释放是整块回收、没有外部碎片；更关键的是两个请求可以共享同一批物理块，只要引用计数管住生命周期。在此基础上再做前缀哈希，相同前缀的 KV 只算一次。」</p>
+</details>
+
+<div class="ask-teacher">
+  <p><strong>卡住了就问。</strong> 特别是「为什么 <code>can_allocate</code> 要返回 <code>-1</code> 而不是 <code>0</code>」这种细节——它决定了调度器会不会跳过这条序列，下一课刚好要用。</p>
+</div>
+
+<footer class="lesson-footer">
+  <h3>主源与延伸</h3>
+  <ul>
+    <li><strong>主源（必读）</strong>：<code>vendor/nano-vllm/nanovllm/engine/block_manager.py</code> 全文 120 行。<a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3/nanovllm/engine/block_manager.py">GitHub 永久链接</a></li>
+    <li>论文：PagedAttention §3（内存管理）、§4.3（共享）。</li>
+    <li>术语速查：<a href="../reference/glossary.html#memory">显存与 KV 管理</a>。</li>
+    <li>下一课：<strong>03 · 调度与抢占</strong>——<code>can_allocate</code> 返回 <code>-1</code> 之后，调度器做了什么。</li>
+  </ul>
+</footer>
+
+</div>
+<script src="../assets/quiz.js?v=2"></script>
+<script>
+CourseQuiz.mount('[data-quiz="block-manager"]', {
+  questions: [
+    {
+      q: '`can_allocate` 只扫描到 `num_blocks - 1`，是因为：',
+      options: [
+        '最后一块可能没填满，不能共享',
+        '最后一块总是留给系统占用',
+        '最后一块的哈希还没计算',
+        '最后一块要等生成时才分配'
+      ],
+      answer: 0,
+      why: ' 只有填满的块内容才稳定，才能登记成前缀给别的序列复用；半满的块还在增长，哈希随时会变。'
+    },
+    {
+      q: '一个块的 `ref_count` 变成 2，最可能的原因是：',
+      options: [
+        '这条序列被复制了一份',
+        '两条序列共享了前缀',
+        '这个块被分配了两次',
+        '调度器做了抢占重算'
+      ],
+      answer: 1,
+      why: ' 前缀命中时只做 `ref_count += 1`，不复制任何 KV 数据——这是共享前缀的全部机制。'
+    },
+    {
+      q: '链式哈希把前一块的哈希混进输入，主要是为了：',
+      options: [
+        '让哈希计算得更快',
+        '降低哈希碰撞的概率',
+        '区分不同前缀下的同内容块',
+        '让块可以按顺序释放'
+      ],
+      answer: 2,
+      why: ' 否则「A,B」和「C,B」里的 B 会算出同一个键，前缀缓存会把不同上下文当成同一段前缀。'
+    },
+    {
+      q: '`hash_blocks` 在什么情况下会直接返回、不登记任何块？',
+      options: [
+        '这一轮没有填满新的块',
+        '这一轮处于解码阶段时',
+        '这一轮的块表是空的',
+        '这一轮发生了抢占'
+      ],
+      answer: 0,
+      why: ' `start == end` 表示这轮算完没有跨过块边界，没有新的满块可以登记。'
+    },
+    {
+      q: '关于 block_size，下面哪个说法是正确的？',
+      options: [
+        '越小越好，因为碎片最少',
+        '越大越好，因为块表最短',
+        '要和底层 kernel 的粒度对齐',
+        '必须等于模型的最大长度'
+      ],
+      answer: 2,
+      why: ' nano-vllm 用 256，是为了直接喂给 FlashAttention 的 block table；vLLM 默认 16，是另一组取舍。'
+    }
+  ]
+});
+</script>
+<script src="../assets/highlight.js?v=2"></script>
+<script src="../assets/lesson-ui.js?v=2"></script>
+</body>
+</html>

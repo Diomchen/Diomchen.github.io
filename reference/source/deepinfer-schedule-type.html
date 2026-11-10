@@ -1,0 +1,69 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>deepinfer-schedule-type</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>deepinfer-schedule-type</h1><p class="source-note">deepinfer/csrc/engine/scheduler.hpp · a679bb8 · L275–343 · <a href="https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/csrc/engine/scheduler.hpp#L275-L343">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>deepinfer · Apache-2.0</strong><p>DeepInfer project and its contributors。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/deepinfer/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L275"><a class="line-no" href="#L275">275</a>    std::unique_ptr&lt;SchedulerOutputs&gt; _schedule() {</span>
+<span class="source-line" id="L276"><a class="line-no" href="#L276">276</a>        py::gil_scoped_release release; // otherwise other python threads would be blocked</span>
+<span class="source-line" id="L277"><a class="line-no" href="#L277">277</a>        BlockManagerMutexAcquire acquire{block_manager, state_manager};</span>
+<span class="source-line" id="L278"><a class="line-no" href="#L278">278</a></span>
+<span class="source-line" id="L279"><a class="line-no" href="#L279">279</a>        // 上一个 step 的 SchedulerOutputs 借用这三个 vector 的存储（见 pybind 的</span>
+<span class="source-line" id="L280"><a class="line-no" href="#L280">280</a>        // clone_states/clone_blocks/zero_states property），Python 侧必须在下一次</span>
+<span class="source-line" id="L281"><a class="line-no" href="#L281">281</a>        // schedule 前消费完，这里 clear 后复用。</span>
+<span class="source-line" id="L282"><a class="line-no" href="#L282">282</a>        clone_states.clear();</span>
+<span class="source-line" id="L283"><a class="line-no" href="#L283">283</a>        zero_states.clear();</span>
+<span class="source-line" id="L284"><a class="line-no" href="#L284">284</a>        clone_blocks.clear();</span>
+<span class="source-line" id="L285"><a class="line-no" href="#L285">285</a></span>
+<span class="source-line" id="L286"><a class="line-no" href="#L286">286</a>        tokens_chunked_prefill_remaining = 0;</span>
+<span class="source-line" id="L287"><a class="line-no" href="#L287">287</a></span>
+<span class="source-line" id="L288"><a class="line-no" href="#L288">288</a>        switch (engine_type) {</span>
+<span class="source-line" id="L289"><a class="line-no" href="#L289">289</a>        case EngineType::PROMPT:</span>
+<span class="source-line" id="L290"><a class="line-no" href="#L290">290</a>            // PROMPT 引擎只做 prefill，即使没调度到请求也返回（空的）prefill 结果</span>
+<span class="source-line" id="L291"><a class="line-no" href="#L291">291</a>            return _schedule_prefill(acquire);</span>
+<span class="source-line" id="L292"><a class="line-no" href="#L292">292</a>        case EngineType::COMPLETION:</span>
+<span class="source-line" id="L293"><a class="line-no" href="#L293">293</a>            // COMPLETION 引擎只做 decode</span>
+<span class="source-line" id="L294"><a class="line-no" href="#L294">294</a>            return _schedule_decode(acquire);</span>
+<span class="source-line" id="L295"><a class="line-no" href="#L295">295</a>        case EngineType::NORMAL: {</span>
+<span class="source-line" id="L296"><a class="line-no" href="#L296">296</a>            // NORMAL 引擎：决定这一步全组做 prompt 还是 decode。dp 内必须同型，靠投票统一。</span>
+<span class="source-line" id="L297"><a class="line-no" href="#L297">297</a>            //</span>
+<span class="source-line" id="L298"><a class="line-no" href="#L298">298</a>            // 两类尝试点：</span>
+<span class="source-line" id="L299"><a class="line-no" href="#L299">299</a>            //   ALL 点（每 prefill_attempt_interval 个 decode step）：全员都有 prefill 活才做，</span>
+<span class="source-line" id="L300"><a class="line-no" href="#L300">300</a>            //     防止一个 rank 干活、其余 rank 陪跑空 prompt step。</span>
+<span class="source-line" id="L301"><a class="line-no" href="#L301">301</a>            //   ANY 点（每 prefill_any_attempt_interval 个 decode step）：一个 rank 有活就一起做，</span>
+<span class="source-line" id="L302"><a class="line-no" href="#L302">302</a>            //     给孤立 rank 兜底——它的 prefill 最多等这么多个 decode step。</span>
+<span class="source-line" id="L303"><a class="line-no" href="#L303">303</a>            //   两类点重合时按 ANY 算。</span>
+<span class="source-line" id="L304"><a class="line-no" href="#L304">304</a>            //</span>
+<span class="source-line" id="L305"><a class="line-no" href="#L305">305</a>            // prompt step 会把 decode_step 清零（见 schedule()），所以刚做完 prefill 的下一步</span>
+<span class="source-line" id="L306"><a class="line-no" href="#L306">306</a>            // decode_step==0，又落在 ALL 点上：想连着 prefill 同样要全员有活。</span>
+<span class="source-line" id="L307"><a class="line-no" href="#L307">307</a>            // decode_step 各 rank 一致，投票的次数和语义全组对得上，不会卡在 allreduce。</span>
+<span class="source-line" id="L308"><a class="line-no" href="#L308">308</a>            bool is_any_point = (decode_step != 0) &amp;&amp; (decode_step % prefill_any_attempt_interval == 0);</span>
+<span class="source-line" id="L309"><a class="line-no" href="#L309">309</a>            bool is_all_point = (decode_step % prefill_attempt_interval == 0);</span>
+<span class="source-line" id="L310"><a class="line-no" href="#L310">310</a>            if (!is_any_point &amp;&amp; !is_all_point) {</span>
+<span class="source-line" id="L311"><a class="line-no" href="#L311">311</a>                return _schedule_decode(acquire);</span>
+<span class="source-line" id="L312"><a class="line-no" href="#L312">312</a>            }</span>
+<span class="source-line" id="L313"><a class="line-no" href="#L313">313</a>            bool want = (get_gpu_cache_usage() &lt;= GPU_CACHE_PREFILL_WATERMARK) &amp;&amp; _has_prefill_waiting();</span>
+<span class="source-line" id="L314"><a class="line-no" href="#L314">314</a>            bool do_prefill;</span>
+<span class="source-line" id="L315"><a class="line-no" href="#L315">315</a>            if (is_any_point) {</span>
+<span class="source-line" id="L316"><a class="line-no" href="#L316">316</a>                do_prefill = (_dp_allreduce(want ? 0 : 1, c10d::ReduceOp::MIN) == 0); // ANY：任一 rank 想做即触发</span>
+<span class="source-line" id="L317"><a class="line-no" href="#L317">317</a>            } else {</span>
+<span class="source-line" id="L318"><a class="line-no" href="#L318">318</a>                do_prefill = (_dp_allreduce(want ? 1 : 0, c10d::ReduceOp::MIN) == 1); // ALL：全员想做才触发</span>
+<span class="source-line" id="L319"><a class="line-no" href="#L319">319</a>            }</span>
+<span class="source-line" id="L320"><a class="line-no" href="#L320">320</a>            if (!do_prefill) {</span>
+<span class="source-line" id="L321"><a class="line-no" href="#L321">321</a>                return _schedule_decode(acquire);</span>
+<span class="source-line" id="L322"><a class="line-no" href="#L322">322</a>            }</span>
+<span class="source-line" id="L323"><a class="line-no" href="#L323">323</a>            std::unique_ptr&lt;SchedulerOutputs&gt; outputs;</span>
+<span class="source-line" id="L324"><a class="line-no" href="#L324">324</a>            if (want) {</span>
+<span class="source-line" id="L325"><a class="line-no" href="#L325">325</a>                outputs = _schedule_prefill(acquire);</span>
+<span class="source-line" id="L326"><a class="line-no" href="#L326">326</a>            }</span>
+<span class="source-line" id="L327"><a class="line-no" href="#L327">327</a></span>
+<span class="source-line" id="L328"><a class="line-no" href="#L328">328</a>            // 第二轮投票：确认这轮真有 rank 排出了 prefill。want 只看了 waiting 非空，</span>
+<span class="source-line" id="L329"><a class="line-no" href="#L329">329</a>            // 但 _schedule_prefill 仍可能空手（slot 满、KV 块不够）。</span>
+<span class="source-line" id="L330"><a class="line-no" href="#L330">330</a>            // 全组都空手时必须转 decode：硬做空 prompt step 会把 decode_step 清零，</span>
+<span class="source-line" id="L331"><a class="line-no" href="#L331">331</a>            // 下一步接着投票、接着空手——running 满 + waiting 非空就死循环了。</span>
+<span class="source-line" id="L332"><a class="line-no" href="#L332">332</a>            bool any_scheduled = (_dp_allreduce(outputs ? 0 : 1, c10d::ReduceOp::MIN) == 0);</span>
+<span class="source-line" id="L333"><a class="line-no" href="#L333">333</a>            if (!any_scheduled) {</span>
+<span class="source-line" id="L334"><a class="line-no" href="#L334">334</a>                return _schedule_decode(acquire);</span>
+<span class="source-line" id="L335"><a class="line-no" href="#L335">335</a>            }</span>
+<span class="source-line" id="L336"><a class="line-no" href="#L336">336</a>            if (outputs) {</span>
+<span class="source-line" id="L337"><a class="line-no" href="#L337">337</a>                return outputs;</span>
+<span class="source-line" id="L338"><a class="line-no" href="#L338">338</a>            }</span>
+<span class="source-line" id="L339"><a class="line-no" href="#L339">339</a>            // 组内确有 rank 在做 prompt：本 rank 陪跑空 prompt step 保持步型一致</span>
+<span class="source-line" id="L340"><a class="line-no" href="#L340">340</a>            return _make_outputs({}, true, 0, {}, {}, {}, 0);</span>
+<span class="source-line" id="L341"><a class="line-no" href="#L341">341</a>        }</span>
+<span class="source-line" id="L342"><a class="line-no" href="#L342">342</a>        }</span>
+<span class="source-line" id="L343"><a class="line-no" href="#L343">343</a>        TORCH_CHECK(false, &quot;unknown engine_type &quot;, int(engine_type));</span></code></pre></main></body></html>

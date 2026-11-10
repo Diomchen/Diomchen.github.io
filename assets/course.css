@@ -1,0 +1,637 @@
+/* ============================================================
+   course.css — 推理框架课 · 共享样式
+   所有 lesson 与 reference 文档都链接这一个文件。
+   ============================================================ */
+
+:root {
+  --page-width: 76rem;
+  --paper: #fdfcf8;
+  --ink: #1b1b1b;
+  --ink-soft: #57534b;
+  --rule: #e5dfd3;
+  --accent: #a63a2a;
+  --accent-soft: #f7ece7;
+  --ochre: #8a6d3b;
+  --ochre-soft: #f8f2e4;
+  --code-bg: #f4f1e9;
+  --green: #2f6f4e;
+  --red: #a63a2a;
+  --green-soft: #eaf2ec;
+  --mono: "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", "Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, serif;
+  --sans: "Inter", "Helvetica Neue", "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html { font-size: 17px; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  line-height: 1.78;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.page {
+  max-width: var(--page-width);
+  margin: 0 auto;
+  padding: 4rem 1.6rem 7rem;
+}
+
+/* ---------- 页头 ---------- */
+
+.kicker {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 0.9rem;
+}
+
+h1 {
+  font-size: 2.45rem;
+  line-height: 1.18;
+  margin: 0 0 0.7rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+
+.dek {
+  font-size: 1.16rem;
+  color: var(--ink-soft);
+  margin: 0 0 1.4rem;
+  line-height: 1.6;
+}
+
+.meta {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  padding: 0.6rem 0;
+  margin: 0 0 2.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.2rem;
+}
+
+/* ---------- 标题层级 ---------- */
+
+h2 {
+  font-size: 1.42rem;
+  line-height: 1.35;
+  margin: 3rem 0 1rem;
+  font-weight: 600;
+}
+
+h2 .num {
+  font-family: var(--mono);
+  font-size: 0.72em;
+  color: var(--accent);
+  margin-right: 0.55em;
+  font-weight: 400;
+}
+
+h3 {
+  font-size: 1.08rem;
+  margin: 2rem 0 0.6rem;
+  font-weight: 600;
+}
+
+p { margin: 0 0 1.1rem; text-wrap: pretty; }
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(166, 58, 42, 0.28);
+  transition: border-color 0.15s ease;
+}
+a:hover { border-bottom-color: var(--accent); }
+
+ul, ol { margin: 0 0 1.2rem; padding-left: 1.35rem; }
+li { margin: 0.35rem 0; }
+li::marker { color: var(--ink-soft); }
+
+strong { font-weight: 600; }
+
+/* ---------- 代码 ---------- */
+
+code {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  background: #f1ede3;
+  padding: 0.08em 0.32em;
+  border-radius: 2px;
+  color: #2a2a26;
+}
+
+pre {
+  position: relative;
+  background: var(--code-bg);
+  border-left: 3px solid #d8d0bf;
+  border-radius: 0 3px 3px 0;
+  padding: 1.05rem 1.15rem 1rem;
+  overflow-x: auto;
+  font-size: 0.845rem;
+  line-height: 1.72;
+  margin: 0 0 1.5rem;
+  tab-size: 4;
+  scrollbar-width: thin;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  font-size: 1em;
+  color: inherit;
+}
+
+pre .file {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  margin-bottom: 0.6rem;
+  text-transform: uppercase;
+}
+
+pre .hl { background: rgba(166, 58, 42, 0.09); display: inline-block; width: 100%; }
+
+/* ---------- 语法着色 ---------- */
+
+pre .cm,
+pre .tok-cm { color: #7d7668; }
+pre .tok-kw { color: #9b2c2c; }
+pre .tok-str { color: #2f6f4e; }
+pre .tok-num { color: #8a6d3b; }
+pre .tok-fn { color: #1f5f8b; }
+pre .tok-bi { color: #6b4c9a; }
+pre .tok-dec { color: #a63a2a; }
+pre .tok-var { color: #7a4b1f; }
+pre .tok-flag { color: #6b4c9a; }
+pre .tok-pp { color: #9b2c2c; }
+
+/* ---------- 复制按钮 ---------- */
+
+.copy-btn {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  font-family: var(--sans);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  background: rgba(253, 252, 248, 0.94);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+pre:hover .copy-btn,
+.copy-btn:focus-visible { opacity: 1; }
+.copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+.copy-btn.copied { color: var(--green); border-color: var(--green); opacity: 1; }
+
+@media (hover: none) {
+  .copy-btn { opacity: 0.8; }
+}
+
+/* ---------- 本课目录 ---------- */
+
+.lesson-toc {
+  font-family: var(--sans);
+  font-size: 0.79rem;
+  line-height: 2;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  padding: 0.5rem 0;
+  margin: 0 0 2.6rem;
+}
+
+.lesson-toc .label {
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-right: 0.9rem;
+}
+
+.lesson-toc a {
+  border-bottom: none;
+  color: var(--ink-soft);
+  margin-right: 1rem;
+  white-space: nowrap;
+}
+
+.lesson-toc a:hover { color: var(--accent); }
+
+/* ---------- 阅读进度 ---------- */
+
+.reading-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  width: 0;
+  background: var(--accent);
+  z-index: 60;
+}
+
+h2[id] { scroll-margin-top: 2rem; }
+
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
+
+/* ---------- 引用 ---------- */
+
+blockquote {
+  margin: 1.6rem 0;
+  padding: 0.1rem 0 0.1rem 1.1rem;
+  border-left: 2px solid var(--rule);
+  color: var(--ink-soft);
+  font-size: 0.97rem;
+}
+
+blockquote p:last-child { margin-bottom: 0; }
+
+
+/* ---------- 提示块 ---------- */
+
+.key, .warn, .aside {
+  padding: 0.95rem 1.15rem;
+  margin: 1.6rem 0;
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+
+.key {
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+}
+
+.warn {
+  background: var(--ochre-soft);
+  border-left: 3px solid var(--ochre);
+}
+
+.aside {
+  background: var(--green-soft);
+  border-left: 3px solid var(--green);
+}
+
+.key p:last-child, .warn p:last-child, .aside p:last-child { margin-bottom: 0; }
+
+.key .label, .warn .label, .aside .label {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 0.35rem;
+  opacity: 0.75;
+}
+
+/* ---------- 旁注 ---------- */
+
+.sidenote {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+@media (min-width: 110rem) {
+  .sidenote {
+    float: right;
+    clear: right;
+    width: 12rem;
+    margin-right: -14.5rem;
+    margin-top: 0.3rem;
+  }
+}
+
+/* ---------- 引擎循环图 ---------- */
+
+.loop {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1fr;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 2rem 0;
+  font-family: var(--sans);
+  font-size: 0.84rem;
+}
+
+.loop .box {
+  border: 1px solid var(--rule);
+  background: #fff;
+  padding: 0.8rem 0.7rem;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.loop .box b { display: block; font-size: 0.92rem; }
+.loop .box span { color: var(--ink-soft); font-size: 0.76rem; }
+.loop .arrow { color: var(--accent); font-size: 1.1rem; }
+
+@media (max-width: 34rem) {
+  .loop { grid-template-columns: 1fr; }
+  .loop .arrow { transform: rotate(90deg); text-align: center; }
+}
+
+/* ---------- 表格 ---------- */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  margin: 0 0 1.6rem;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.6rem 0.7rem;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+
+th {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--ink-soft);
+}
+
+/* ---------- 折叠答案 ---------- */
+
+details {
+  border: 1px solid var(--rule);
+  background: #fff;
+  padding: 0.7rem 1rem;
+  margin: 0.9rem 0;
+  font-size: 0.94rem;
+}
+
+summary {
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+details p:last-child { margin-bottom: 0; }
+
+/* ---------- 测验 ---------- */
+
+.quiz {
+  border-top: 2px solid var(--ink);
+  padding-top: 1.2rem;
+  margin: 2.4rem 0;
+}
+
+.quiz-q { margin-bottom: 1.9rem; }
+
+.q-text {
+  font-size: 1rem;
+  margin-bottom: 0.8rem;
+  font-weight: 600;
+}
+
+.options { display: grid; gap: 0.45rem; }
+
+.option {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--rule);
+  padding: 0.62rem 0.8rem;
+  font-family: var(--serif);
+  font-size: 0.94rem;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.option:hover { background: #fbf8f2; border-color: #cfc6b4; }
+.option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.option[disabled] { cursor: default; }
+
+.option .tag {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  min-width: 1rem;
+}
+
+.option.correct {
+  background: var(--green-soft);
+  border-color: var(--green);
+}
+.option.correct .tag { color: var(--green); }
+
+.option.wrong {
+  background: #fbf0ed;
+  border-color: var(--red);
+}
+.option.wrong .tag { color: var(--red); }
+
+.feedback {
+  font-family: var(--sans);
+  font-size: 0.84rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+  margin-top: 0.6rem;
+  min-height: 1.2rem;
+}
+
+.feedback.ok { color: var(--green); }
+.feedback.no { color: var(--red); }
+
+.score {
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  border-top: 1px solid var(--rule);
+  padding-top: 0.9rem;
+  color: var(--ink-soft);
+}
+
+/* ---------- 术语表 ---------- */
+
+.gloss { margin: 0 0 2rem; }
+
+.gloss dt {
+  font-weight: 600;
+  margin-top: 1.35rem;
+  line-height: 1.5;
+}
+
+.gloss dt .en {
+  font-family: var(--mono);
+  font-size: 0.82em;
+  font-weight: 400;
+  color: var(--accent);
+}
+
+.gloss dt .zh { color: var(--ink-soft); font-weight: 400; font-size: 0.92em; }
+
+.gloss dd {
+  margin: 0.25rem 0 0;
+  font-size: 0.94rem;
+  line-height: 1.7;
+}
+
+.gloss .where {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+  margin-top: 0.2rem;
+}
+
+.gloss .where code { font-size: 0.9em; background: none; padding: 0; color: var(--accent); }
+
+.toc {
+  font-family: var(--sans);
+  font-size: 0.86rem;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  padding: 0.9rem 0;
+  margin: 0 0 2.2rem;
+}
+.toc a { margin-right: 1.1rem; border-bottom: none; }
+
+/* ---------- 课程导航 ---------- */
+
+.lesson-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  padding: 0.55rem 0;
+  margin: 0 0 2.6rem;
+  color: var(--ink-soft);
+}
+.lesson-nav a { border-bottom: none; }
+.lesson-nav .home { letter-spacing: 0.08em; text-transform: uppercase; }
+.lesson-nav .right { margin-left: auto; }
+
+/* ---------- 课程索引 ---------- */
+
+.part {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 2.8rem 0 0.4rem;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 0.4rem;
+}
+
+.lesson-card {
+  display: grid;
+  grid-template-columns: 2.6rem 1fr auto;
+  gap: 0.2rem 0.9rem;
+  align-items: baseline;
+  padding: 0.85rem 0.4rem;
+  border-bottom: 1px solid var(--rule);
+  text-decoration: none;
+  color: inherit;
+  border-left: 2px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.lesson-card:hover {
+  background: #fff;
+  border-left-color: var(--accent);
+}
+
+.lesson-card .no {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--accent);
+}
+
+.lesson-card .t {
+  font-family: var(--serif);
+  font-size: 1.04rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.lesson-card .d {
+  grid-column: 2 / 3;
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.lesson-card .m {
+  grid-row: 1 / 2;
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+@media (max-width: 34rem) {
+  .lesson-card { grid-template-columns: 2.2rem 1fr; }
+  .lesson-card .m { grid-row: auto; grid-column: 2 / 3; }
+}
+
+/* ---------- 页脚 ---------- */
+
+.lesson-footer {
+  margin-top: 3.5rem;
+  border-top: 1px solid var(--rule);
+  padding-top: 1.4rem;
+  font-family: var(--sans);
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.lesson-footer h3 { font-family: var(--sans); font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink); }
+.lesson-footer ul { padding-left: 1.1rem; }
+
+.ask-teacher {
+  background: #fff;
+  border: 1px dashed var(--accent);
+  padding: 1rem 1.15rem;
+  margin: 2.2rem 0;
+  font-size: 0.92rem;
+}
+.ask-teacher strong { color: var(--accent); }
+
+/* ---------- 打印 ---------- */
+
+@media print {
+  html { font-size: 12pt; }
+  body { background: #fff; }
+  .page { max-width: none; padding: 0; }
+  .no-print { display: none !important; }
+  a { color: var(--ink); border-bottom: none; }
+  pre, .key, .warn, .aside, details { break-inside: avoid; }
+  h2 { break-after: avoid; }
+}

@@ -1,0 +1,58 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>nano-embedding</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>nano-embedding</h1><p class="source-note">nano-vllm/nanovllm/layers/embed_head.py · bb823b3 · L9–66 · <a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/layers/embed_head.py#L9-L66">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>nano-vllm · MIT</strong><p>Copyright (c) 2025 Xingkai Yu。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/nano-vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L9"><a class="line-no" href="#L9">9</a>class VocabParallelEmbedding(nn.Module):</span>
+<span class="source-line" id="L10"><a class="line-no" href="#L10">10</a></span>
+<span class="source-line" id="L11"><a class="line-no" href="#L11">11</a>    def __init__(</span>
+<span class="source-line" id="L12"><a class="line-no" href="#L12">12</a>        self,</span>
+<span class="source-line" id="L13"><a class="line-no" href="#L13">13</a>        num_embeddings: int,</span>
+<span class="source-line" id="L14"><a class="line-no" href="#L14">14</a>        embedding_dim: int,</span>
+<span class="source-line" id="L15"><a class="line-no" href="#L15">15</a>    ):</span>
+<span class="source-line" id="L16"><a class="line-no" href="#L16">16</a>        super().__init__()</span>
+<span class="source-line" id="L17"><a class="line-no" href="#L17">17</a>        self.tp_rank = dist.get_rank()</span>
+<span class="source-line" id="L18"><a class="line-no" href="#L18">18</a>        self.tp_size = dist.get_world_size()</span>
+<span class="source-line" id="L19"><a class="line-no" href="#L19">19</a>        assert num_embeddings % self.tp_size == 0</span>
+<span class="source-line" id="L20"><a class="line-no" href="#L20">20</a>        self.num_embeddings = num_embeddings</span>
+<span class="source-line" id="L21"><a class="line-no" href="#L21">21</a>        self.num_embeddings_per_partition = self.num_embeddings // self.tp_size</span>
+<span class="source-line" id="L22"><a class="line-no" href="#L22">22</a>        self.vocab_start_idx = self.num_embeddings_per_partition * self.tp_rank</span>
+<span class="source-line" id="L23"><a class="line-no" href="#L23">23</a>        self.vocab_end_idx = self.vocab_start_idx + self.num_embeddings_per_partition</span>
+<span class="source-line" id="L24"><a class="line-no" href="#L24">24</a>        self.weight = nn.Parameter(torch.empty(self.num_embeddings_per_partition, embedding_dim))</span>
+<span class="source-line" id="L25"><a class="line-no" href="#L25">25</a>        self.weight.weight_loader = self.weight_loader</span>
+<span class="source-line" id="L26"><a class="line-no" href="#L26">26</a></span>
+<span class="source-line" id="L27"><a class="line-no" href="#L27">27</a>    def weight_loader(self, param: nn.Parameter, loaded_weight: torch.Tensor):</span>
+<span class="source-line" id="L28"><a class="line-no" href="#L28">28</a>        param_data = param.data</span>
+<span class="source-line" id="L29"><a class="line-no" href="#L29">29</a>        shard_size = param_data.size(0)</span>
+<span class="source-line" id="L30"><a class="line-no" href="#L30">30</a>        start_idx = self.tp_rank * shard_size</span>
+<span class="source-line" id="L31"><a class="line-no" href="#L31">31</a>        loaded_weight = loaded_weight.narrow(0, start_idx, shard_size)</span>
+<span class="source-line" id="L32"><a class="line-no" href="#L32">32</a>        param_data.copy_(loaded_weight)</span>
+<span class="source-line" id="L33"><a class="line-no" href="#L33">33</a></span>
+<span class="source-line" id="L34"><a class="line-no" href="#L34">34</a>    def forward(self, x: torch.Tensor):</span>
+<span class="source-line" id="L35"><a class="line-no" href="#L35">35</a>        if self.tp_size &gt; 1:</span>
+<span class="source-line" id="L36"><a class="line-no" href="#L36">36</a>            mask = (x &gt;= self.vocab_start_idx) &amp; (x &lt; self.vocab_end_idx)</span>
+<span class="source-line" id="L37"><a class="line-no" href="#L37">37</a>            x = mask * (x - self.vocab_start_idx)</span>
+<span class="source-line" id="L38"><a class="line-no" href="#L38">38</a>        y = F.embedding(x, self.weight)</span>
+<span class="source-line" id="L39"><a class="line-no" href="#L39">39</a>        if self.tp_size &gt; 1:</span>
+<span class="source-line" id="L40"><a class="line-no" href="#L40">40</a>            y = mask.unsqueeze(1) * y</span>
+<span class="source-line" id="L41"><a class="line-no" href="#L41">41</a>            dist.all_reduce(y)</span>
+<span class="source-line" id="L42"><a class="line-no" href="#L42">42</a>        return y</span>
+<span class="source-line" id="L43"><a class="line-no" href="#L43">43</a></span>
+<span class="source-line" id="L44"><a class="line-no" href="#L44">44</a></span>
+<span class="source-line" id="L45"><a class="line-no" href="#L45">45</a>class ParallelLMHead(VocabParallelEmbedding):</span>
+<span class="source-line" id="L46"><a class="line-no" href="#L46">46</a></span>
+<span class="source-line" id="L47"><a class="line-no" href="#L47">47</a>    def __init__(</span>
+<span class="source-line" id="L48"><a class="line-no" href="#L48">48</a>        self,</span>
+<span class="source-line" id="L49"><a class="line-no" href="#L49">49</a>        num_embeddings: int,</span>
+<span class="source-line" id="L50"><a class="line-no" href="#L50">50</a>        embedding_dim: int,</span>
+<span class="source-line" id="L51"><a class="line-no" href="#L51">51</a>        bias: bool = False,</span>
+<span class="source-line" id="L52"><a class="line-no" href="#L52">52</a>    ):</span>
+<span class="source-line" id="L53"><a class="line-no" href="#L53">53</a>        assert not bias</span>
+<span class="source-line" id="L54"><a class="line-no" href="#L54">54</a>        super().__init__(num_embeddings, embedding_dim)</span>
+<span class="source-line" id="L55"><a class="line-no" href="#L55">55</a></span>
+<span class="source-line" id="L56"><a class="line-no" href="#L56">56</a>    def forward(self, x: torch.Tensor):</span>
+<span class="source-line" id="L57"><a class="line-no" href="#L57">57</a>        context = get_context()</span>
+<span class="source-line" id="L58"><a class="line-no" href="#L58">58</a>        if context.is_prefill:</span>
+<span class="source-line" id="L59"><a class="line-no" href="#L59">59</a>            last_indices = context.cu_seqlens_q[1:] - 1</span>
+<span class="source-line" id="L60"><a class="line-no" href="#L60">60</a>            x = x[last_indices].contiguous()</span>
+<span class="source-line" id="L61"><a class="line-no" href="#L61">61</a>        logits = F.linear(x, self.weight)</span>
+<span class="source-line" id="L62"><a class="line-no" href="#L62">62</a>        if self.tp_size &gt; 1:</span>
+<span class="source-line" id="L63"><a class="line-no" href="#L63">63</a>            all_logits = [torch.empty_like(logits) for _ in range(self.tp_size)] if self.tp_rank == 0 else None</span>
+<span class="source-line" id="L64"><a class="line-no" href="#L64">64</a>            dist.gather(logits, all_logits, 0)</span>
+<span class="source-line" id="L65"><a class="line-no" href="#L65">65</a>            logits = torch.cat(all_logits, -1) if self.tp_rank == 0 else None</span>
+<span class="source-line" id="L66"><a class="line-no" href="#L66">66</a>        return logits</span></code></pre></main></body></html>

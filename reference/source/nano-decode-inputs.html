@@ -1,0 +1,17 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>nano-decode-inputs</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>nano-decode-inputs</h1><p class="source-note">nano-vllm/nanovllm/engine/model_runner.py · bb823b3 · L172–188 · <a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/engine/model_runner.py#L172-L188">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>nano-vllm · MIT</strong><p>Copyright (c) 2025 Xingkai Yu。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/nano-vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L172"><a class="line-no" href="#L172">172</a>    def prepare_decode(self, seqs: list[Sequence]):</span>
+<span class="source-line" id="L173"><a class="line-no" href="#L173">173</a>        input_ids = []</span>
+<span class="source-line" id="L174"><a class="line-no" href="#L174">174</a>        positions = []</span>
+<span class="source-line" id="L175"><a class="line-no" href="#L175">175</a>        slot_mapping = []</span>
+<span class="source-line" id="L176"><a class="line-no" href="#L176">176</a>        context_lens = []</span>
+<span class="source-line" id="L177"><a class="line-no" href="#L177">177</a>        for seq in seqs:</span>
+<span class="source-line" id="L178"><a class="line-no" href="#L178">178</a>            input_ids.append(seq.last_token)</span>
+<span class="source-line" id="L179"><a class="line-no" href="#L179">179</a>            positions.append(len(seq) - 1)</span>
+<span class="source-line" id="L180"><a class="line-no" href="#L180">180</a>            context_lens.append(len(seq))</span>
+<span class="source-line" id="L181"><a class="line-no" href="#L181">181</a>            slot_mapping.append(seq.block_table[-1] * self.block_size + seq.last_block_num_tokens  - 1)</span>
+<span class="source-line" id="L182"><a class="line-no" href="#L182">182</a>        input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)</span>
+<span class="source-line" id="L183"><a class="line-no" href="#L183">183</a>        positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)</span>
+<span class="source-line" id="L184"><a class="line-no" href="#L184">184</a>        slot_mapping = torch.tensor(slot_mapping, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)</span>
+<span class="source-line" id="L185"><a class="line-no" href="#L185">185</a>        context_lens = torch.tensor(context_lens, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)</span>
+<span class="source-line" id="L186"><a class="line-no" href="#L186">186</a>        block_tables = self.prepare_block_tables(seqs)</span>
+<span class="source-line" id="L187"><a class="line-no" href="#L187">187</a>        set_context(False, slot_mapping=slot_mapping, context_lens=context_lens, block_tables=block_tables)</span>
+<span class="source-line" id="L188"><a class="line-no" href="#L188">188</a>        return input_ids, positions</span></code></pre></main></body></html>

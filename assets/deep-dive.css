@@ -1,0 +1,77 @@
+/* Shared visual lessons. All assets work offline, without a build or CDN. */
+:root { --blue: #245c78; --blue-soft: #e9f2f6; --red: #a63a2a; }
+.skip-link { position:absolute; left:1rem; top:-6rem; background:white; padding:.6rem; z-index:100; }
+.skip-link:focus { top:1rem; }
+:focus-visible { outline:3px solid var(--blue); outline-offset:3px; }
+.visual { margin:1.8rem 0; padding:1rem; border:1px solid var(--rule); background:#fff; break-inside:avoid; overflow-x:auto; }
+.visual img { display:block; width:100%; min-width:560px; height:auto; }
+.page p,.page li,.page dd,.page h1,.page h2,.page h3 { overflow-wrap:anywhere; }
+.lesson-toc a { white-space:normal; }
+.lesson-card .no { grid-column:1; grid-row:1; }
+.lesson-card .t { grid-column:2; grid-row:1; }
+.lesson-card .m { grid-column:3; grid-row:1; }
+.lesson-card .d { grid-column:2 / 4; grid-row:2; }
+figcaption, .source-note { font-family:var(--sans); color:var(--ink-soft); font-size:.78rem; line-height:1.7; }
+figcaption { margin-top:.7rem; }
+.equation { overflow-x:auto; padding:1rem; font-family:var(--mono); font-size:.88rem; background:var(--blue-soft); border-left:3px solid var(--blue); }
+.lab { border:1px solid #bdcfd7; padding:1.2rem; margin:1.7rem 0; background:#f5f9fa; font-family:var(--sans); }
+.lab h3 { margin-top:0; }
+.lab .controls { display:flex; flex-wrap:wrap; align-items:end; gap:1rem; margin:.8rem 0 1rem; }
+.lab label { display:flex; flex-direction:column; gap:.3rem; font-size:.82rem; }
+.lab input, .lab select, .lab button, .review-controls button { font:inherit; min-height:42px; border:1px solid #8199a4; background:white; color:var(--ink); padding:.4rem .6rem; border-radius:3px; }
+.lab input[type=range] { width:160px; padding:0; }
+.lab input[type=number] { width:110px; }
+.lab button, .review-controls button { cursor:pointer; }
+.lab button:hover { background:var(--blue-soft); }
+.lab-output { overflow-x:auto; }
+.lab-output p { margin:.5rem 0; font-size:.88rem; }
+.lab-output table { font-family:var(--mono); font-size:.78rem; }
+.lab-output th, .lab-output td { padding:.45rem; }
+.cell-on { background:#e3ede6; color:#194b32; }
+.cell-off { background:#eeeae4; color:#59534a; }
+.cell-new { background:#f8ded0; color:#71301e; }
+.lab svg { width:100%; max-height:320px; display:block; }
+.lab-note { font-size:.76rem; color:var(--ink-soft); }
+.bar-row { display:grid; grid-template-columns:6rem 1fr 4rem; gap:.6rem; align-items:center; margin:.5rem 0; font-size:.8rem; }
+.bar-track { height:24px; background:#e4e9eb; }
+.bar-fill { height:100%; background:var(--blue); }
+.table-scroll { overflow-x:auto; }
+.source-table { font-size:.78rem; }
+.source-table code { overflow-wrap:anywhere; }
+.source-code { font-size:.76rem; }
+.source-line { display:block; scroll-margin-top:2rem; }
+.source-line:target { background:#fff0c0; }
+.line-no { display:inline-block; width:3.5em; color:#756b5b; user-select:none; }
+.route-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; margin:1.5rem 0; }
+.route-card { padding:1.1rem; border:1px solid var(--rule); background:white; }
+.route-card strong { display:block; margin-bottom:.3rem; }
+.route-card p { margin:0; font-size:.83rem; }
+.study-state { margin:1.4rem 0; padding:1rem; background:var(--green-soft); font-family:var(--sans); font-size:.8rem; }
+.review-controls { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:.7rem; }
+.check-input { display:flex; flex-wrap:wrap; align-items:center; gap:.6rem; }
+.check-input input { max-width:100%; }
+.answer-feedback { min-height:1.5em; }
+.source-note a { overflow-wrap:anywhere; }
+.atlas-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+.atlas-grid .visual { margin:0; }
+.atlas-grid .visual img { min-width:0; }
+@media (max-width:600px) {
+  .page { padding:2rem 1.1rem 4rem; }
+  h1 { font-size:1.9rem; }
+  .route-grid,.atlas-grid { grid-template-columns:1fr; }
+  .visual { padding:.4rem; }
+  .lab { padding:.8rem; }
+  .equation { font-size:.76rem; }
+  .lesson-nav { flex-wrap:wrap; }
+  .lesson-card .m { grid-column:2; grid-row:2; }
+  .lesson-card .d { grid-column:2; grid-row:3; }
+  th,td { overflow-wrap:anywhere; }
+}
+@media print {
+  .lab .controls,.review-controls,.reading-progress,.copy-btn,.skip-link { display:none!important; }
+  .lab { background:white; }
+  .page { max-width:none; }
+  .route-grid,.atlas-grid { grid-template-columns:1fr; }
+  .source-line { white-space:pre-wrap; }
+  .visual img { min-width:0; }
+}

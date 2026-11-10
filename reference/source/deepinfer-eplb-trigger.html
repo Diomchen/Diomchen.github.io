@@ -1,0 +1,20 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>deepinfer-eplb-trigger</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>deepinfer-eplb-trigger</h1><p class="source-note">deepinfer/deepinfer/model_executor/eplb/__init__.py · a679bb8 · L146–165 · <a href="https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/model_executor/eplb/__init__.py#L146-L165">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>deepinfer · Apache-2.0</strong><p>DeepInfer project and its contributors。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/deepinfer/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L146"><a class="line-no" href="#L146">146</a>    def _update_rearrangement(self, is_prompt: bool) -&gt; None:</span>
+<span class="source-line" id="L147"><a class="line-no" href="#L147">147</a>        if self._rearrangement_interval == 0:</span>
+<span class="source-line" id="L148"><a class="line-no" href="#L148">148</a>            return</span>
+<span class="source-line" id="L149"><a class="line-no" href="#L149">149</a>        if is_prompt and self._skip_rearrangement_on_prefill:</span>
+<span class="source-line" id="L150"><a class="line-no" href="#L150">150</a>            return</span>
+<span class="source-line" id="L151"><a class="line-no" href="#L151">151</a></span>
+<span class="source-line" id="L152"><a class="line-no" href="#L152">152</a>        window_index = self._expert_count_window_index</span>
+<span class="source-line" id="L153"><a class="line-no" href="#L153">153</a>        self._expert_count_window[window_index].copy_(self.expert_count)</span>
+<span class="source-line" id="L154"><a class="line-no" href="#L154">154</a>        self._expert_count_window_index = (window_index + 1) % self._expert_count_window.size(0)</span>
+<span class="source-line" id="L155"><a class="line-no" href="#L155">155</a></span>
+<span class="source-line" id="L156"><a class="line-no" href="#L156">156</a>        if is_prompt and self._schedule_rearrangement_after_prefill:</span>
+<span class="source-line" id="L157"><a class="line-no" href="#L157">157</a>            # 下一个非 prefill step 立即 rearrange。</span>
+<span class="source-line" id="L158"><a class="line-no" href="#L158">158</a>            self._rearrangement_step = self._rearrangement_interval - 1</span>
+<span class="source-line" id="L159"><a class="line-no" href="#L159">159</a>            return</span>
+<span class="source-line" id="L160"><a class="line-no" href="#L160">160</a></span>
+<span class="source-line" id="L161"><a class="line-no" href="#L161">161</a>        self._rearrangement_step += 1</span>
+<span class="source-line" id="L162"><a class="line-no" href="#L162">162</a>        if self._rearrangement_step &lt; self._rearrangement_interval:</span>
+<span class="source-line" id="L163"><a class="line-no" href="#L163">163</a>            return</span>
+<span class="source-line" id="L164"><a class="line-no" href="#L164">164</a>        self._rearrangement_step = 0</span>
+<span class="source-line" id="L165"><a class="line-no" href="#L165">165</a>        self._rearrange_experts()</span></code></pre></main></body></html>

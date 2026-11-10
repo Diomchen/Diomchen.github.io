@@ -1,77 +1,162 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-<link rel="shortcut icon" href="https://Diomchen.github.io/favicon.ico" type="image/x-icon" /><meta name="viewport"content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"/><meta name="apple-mobile-web-app-capable"content="yes"/><meta name="apple-mobile-web-app-status-bar-style"content="black"/><meta name="format-detection"content="telephone=no"/><meta name="renderer"content="webkit"><meta name="description"content="忙趁东风放纸鸢。"><meta charset="UTF-8"><title>DiomChen&#39;s Blog</title>
-<link href="https://Diomchen.github.io/styles/main.css" type="text/css" rel="stylesheet" /><link href="https://at.alicdn.com/t/font_1621793_zatzzgvf30g.css" type="text/css" rel="stylesheet" /><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.12.0/dist/katex.css"><script async src="https://cdn.jsdelivr.net/npm/busuanzi@2.3.0/bsz.pure.mini.min.js"></script><script src="https://Diomchen.github.io/media/js/magnify.min.js"></script><script defer src="https://cdn.jsdelivr.net/npm/katex@0.12.0/dist/katex.min.js"></script>
-<script type="text/javascript">function btn_toggle(){document.getElementById("hn").classList.contains("no-js")?document.getElementById("hn").classList.remove("no-js"):document.getElementById("hn").classList.add("no-js")}</script>
-
-<link rel="canonical" href="https://Diomchen.github.io" /> 
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transformer 与推理框架 · 32课学习地图</title>
+<link rel="stylesheet" href="assets/course.css?v=2">
+<link rel="stylesheet" href="assets/deep-dive.css">
 </head>
 <body>
-<div class="progress"></div><style>.progress{background:linear-gradient(to right,#87ceeb var(--scroll),transparent 0);background-repeat:no-repeat;position:fixed;width:100%;height:4px;z-index:1}</style><div class="darkmode-background"></div><div class="darkmode-layer"></div>
-<noscript><p class="warn" >本页面需要浏览器支持（启用）JavaScript</p></noscript><div class="header"><div class="logo_title"><div class="title animated fadeInDown"><a href="https://Diomchen.github.io"><img alt="logo" style="display:inline-block;" src="https://Diomchen.github.io/images/avatar.png"/></a><h1 title="DiomChen&#39;s Blog" class="weaklink"><a  href="/">DiomChen&#39;s Blog</a></h1>
+<div class="page">
 
-<div class="navbar weaklink">
-<div class="normal_nav">
-<div class="bitcron_nav_container"><div class="bitcron_nav"><div class="bitcron_nav"><div style="display:flex;justify-content:center;"><nav class="mixed_site_nav_wrap site_nav_wrap"><ul class="mixed_site_nav site_nav sm sm-base">	<li><a id="d2ef19af68cc211e98f8a0242ac110003" href="/" class="selected active current nav__item" >首页</a></li><li><a id="d2ef19af68cc211e98f8a0242ac110003" href="/archives" class="selected active current nav__item" >归档</a></li><li><a id="d2ef19af68cc211e98f8a0242ac110003" href="/tags" class="selected active current nav__item" >标签</a></li><li><a id="d2ef19af68cc211e98f8a0242ac110003" href="/post/about" class="selected active current nav__item" >关于</a></li></ul></nav>
-<div style="float:right;margin-top:1em"><form id="gridea-search-form" data-update="1578893743252" action="/search/index.html"><input class="search-input" autocomplete="off" spellcheck="false" name="q" placeholder="Search..."></form></div><div style="margin-left:0.5em;margin-top:1.2em"><input id="switch_default" onclick="mobileBtn()" type="checkbox" class="switch_default"><label for="switch_default" class="toggleBtn"></label></div></div>
-<div class="clear clear_nav_inline_end"></div></div></div><div class="clear clear_nav_end"></div></div></div><div class="hamberger" href="javascript:void(0)" onclick="btn_toggle();"><i class="iconfont icon-category"></i></div></div></div></div>
-<div id="hn" class="no-js hidden_nav animated fadeInDown"><div class="bitcron_nav_container"><div class="bitcron_nav"><nav class="mixed_site_nav_wrap site_nav_wrap"><ul class="mixed_site_nav site_nav sm sm-base">	<li><a id="d2ef19af68cc211e98f8a0242ac110003" href="/" class="selected active current nav__item" >首页</a></li><li><a id="d2ef19af68cc211e98f8a0242ac110003" href="/archives" class="selected active current nav__item" >归档</a></li><li><a id="d2ef19af68cc211e98f8a0242ac110003" href="/tags" class="selected active current nav__item" >标签</a></li><li><a id="d2ef19af68cc211e98f8a0242ac110003" href="/post/about" class="selected active current nav__item" >关于</a></li></ul><div class="clear clear_nav_inline_end"></div></nav></div><div class="clear clear_nav_end"></div></div>
-<div style="display:flex;justify-content:center;inline-block;text-align:center;margin-top:7%"><div><form id="gridea-search-form" data-update="1627034181787" action="/search/index.html"><input class="search-input" autocomplete="off" spellcheck="false" name="q"  placeholder="Search..." /></form></div><div style="margin-left:0.5em"><input id="switch_default_h" onclick="mobileBtn()" type="checkbox" class="switch_default"><label for="switch_default" class="toggleBtn"></label></div></div>
-</div></div>
-<script>function enableDarkmode(){document.body.classList.add("darkmode"),document.getElementById("switch_default").checked=1,document.getElementById("switch_default_h").checked=1}function removeDarkmode(){document.body.classList.remove("darkmode"),document.getElementById("switch_default").checked=0,document.getElementById("switch_default_h").checked=0}function getCookie(a){var b,c=new RegExp("(^| )"+a+"=([^;]*)(;|$)");return(b=document.cookie.match(c))?unescape(b[2]):null}cookie=getCookie("darkmode"),"enable"==cookie&&enableDarkmode(),window.matchMedia("(prefers-color-scheme: dark)").matches&&"disable"!==cookie&&(enableDarkmode(),document.cookie="darkmode=enable; path=/");var mobileBtn=function(){1==document.getElementById("switch_default").checked?(enableDarkmode(),document.cookie="darkmode=enable; path=/"):(removeDarkmode(),document.cookie="darkmode=disable; path=/")};</script>
+<header>
+  <p class="kicker">课程索引 · nano-vllm → vLLM → DeepInfer</p>
+  <h1>从 Transformer 的一行计算<br>走到推理引擎的每一步</h1>
+  <p class="dek">32 节课，两条互相连接的线：手算 Transformer 的张量与公式，再沿 nano-vllm、vLLM V1、DeepInfer 追踪请求、缓存和执行。用图例、即时练习和真实源码把概念接起来。</p>
+  <p class="meta">
+    <span>14 节原课 + 18 节深入课</span>
+    <span>46 张 SVG · 维度逐格交互 · CPU本地验证</span>
+    <span>固定源码版本 · 56份在线摘录</span>
+  </p>
+</header>
 
-<div class="main">
-<div class="main-inner">
-<div class="content">
-<div class="post_list" ><div class="round-shape-one"></div>
+<div class="key">
+  <span class="label">怎么用这套课</span>
+  <p>原课提供全景；深入课核心阅读约12–18分钟，再做10–20分钟练习。先预测 → 看图推导 → 核对数值 → 跟源码。建议从15课补基础，隔1、3、7天闭卷复习；卡住直接在对话里追问。</p>
+</div>
 
-<div class="post">
+<div class="route-grid"><a class="route-card" href="reference/start-here.html"><strong>第一次来：在线阅读与本地运行</strong><p>完整下载、WSL实验、固定版本源码与课程说明</p></a><a class="route-card" href="reference/dimension-walkthrough.html"><strong>维度转换：看清每个元素去了哪里</strong><p>10张详细矩阵图 · 4组可点击实验 · reshape与transpose反例</p></a><a class="route-card" href="reference/local-labs.html"><strong>4070 Ti 本地实验台</strong><p>WSL调度模拟报告 + CPU数值验证 + GPU实验脚本</p></a><a class="route-card" href="lessons/0015-transformer-tensor-contract.html"><strong>先补 Transformer 底座</strong><p>15 → 23 · 形状、mask、RoPE、KV等价</p></a><a class="route-card" href="lessons/0024-nano-state-trace.html"><strong>直接进入源码细节</strong><p>24 → 32 · 三框架状态、缓存与执行</p></a><a class="route-card" href="reference/visual-atlas.html"><strong>打开图解索引</strong><p>46张离线图，含10张逐格维度拆解</p></a><a class="route-card" href="reference/review-roadmap.html"><strong>实验与复习路线</strong><p>CPU验证、WSL测量、自评与小作品</p></a></div><p class="part">第一部分 · nano-vllm：把引擎拆开</p>
 
-<div class="post_title weaklink">
-<h2><a href="https://Diomchen.github.io/post/apollo-shi-yong/" >🌞 Apollo使用</a>
-</h2>
-</div>
-<div class="post_content markdown"><div class="p_part"><p></p></div></div>
-<div class="post_footer">
-<section class="info weaklink"><i class="iconfont icon-calendar"></i><span style="margin-right:15px">2021-07-23</span><i class="iconfont icon-category"></i><span class="weaklink" style="margin-right:13px"></span><i class="iconfont icon-caret-down"></i><span class="weaklink"style="margin-right:20px;">248字</span><i class="iconfont icon-naozhong"></i><span class="weaklink"style="margin-right:15px;">2 min read</span></section></div></div>
-<div class="post">
+<a class="lesson-card" href="lessons/0001-engine-loop.html">
+  <span class="no">01</span>
+  <span class="t">90 行，一个推理引擎</span>
+  <span class="m">45 min</span>
+  <span class="d">generate() 的三段循环、prefill/decode 的分工、num_tokens 的正负号。</span>
+</a>
 
-<div class="post_title weaklink">
-<h2><a href="https://Diomchen.github.io/post/neo4j/" >🌍neo4j</a>
-</h2>
-</div>
-<div class="post_content markdown"><div class="p_part"><p></p></div></div>
-<div class="post_footer">
-<section class="info weaklink"><i class="iconfont icon-calendar"></i><span style="margin-right:15px">2021-07-19</span><i class="iconfont icon-category"></i><span class="weaklink" style="margin-right:13px"><a href="https://Diomchen.github.io/tag/hFYxkLB1R/"class="tag">图数据库</a>| <a href="https://Diomchen.github.io/tag/VIZm0jtmD/"class="tag">neo4j</a></span><i class="iconfont icon-caret-down"></i><span class="weaklink"style="margin-right:20px;">1486字</span><i class="iconfont icon-naozhong"></i><span class="weaklink"style="margin-right:15px;">8 min read</span></section></div></div>
-<div class="post">
+<a class="lesson-card" href="lessons/0002-kv-cache-block-manager.html">
+  <span class="no">02</span>
+  <span class="t">显存里的那本「页表」</span>
+  <span class="m">50 min</span>
+  <span class="d">分页、引用计数、前缀哈希链——112 KiB/token 到底花在哪。</span>
+</a>
 
-<div class="post_title weaklink">
-<h2><a href="https://Diomchen.github.io/post/mongodb-xue-xi/" >🥭mongodb学习</a>
-</h2>
-</div>
-<div class="post_content markdown"><div class="p_part"><p></p></div></div>
-<div class="post_footer">
-<section class="info weaklink"><i class="iconfont icon-calendar"></i><span style="margin-right:15px">2021-07-19</span><i class="iconfont icon-category"></i><span class="weaklink" style="margin-right:13px"><a href="https://Diomchen.github.io/tag/ftrdi5fpq/"class="tag">mongoDB</a>| <a href="https://Diomchen.github.io/tag/yjaXxrPCZ/"class="tag">NoSql</a>| <a href="https://Diomchen.github.io/tag/JkYbQTgyQ/"class="tag">数据库</a></span><i class="iconfont icon-caret-down"></i><span class="weaklink"style="margin-right:20px;">805字</span><i class="iconfont icon-naozhong"></i><span class="weaklink"style="margin-right:15px;">4 min read</span></section></div></div>
-<div class="post">
+<a class="lesson-card" href="lessons/0003-scheduler-preemption.html">
+  <span class="no">03</span>
+  <span class="t">谁上 GPU，谁在等</span>
+  <span class="m">50 min</span>
+  <span class="d">双队列、三种 break、抢占的代价、那个 while...else。</span>
+</a>
 
-<div class="post_title weaklink">
-<h2><a href="https://Diomchen.github.io/post/neo4j-wen-dang-zheng-li/" >🧶neo4j文档整理</a>
-</h2>
+<a class="lesson-card" href="lessons/0004-attention-slot-mapping.html">
+  <span class="no">04</span>
+  <span class="t">KV 到底写到了哪一格</span>
+  <span class="m">60 min</span>
+  <span class="d">slot_mapping 的构造与消费、FlashAttention 两种调用、指数竞赛采样。</span>
+</a>
+
+<a class="lesson-card" href="lessons/0005-tensor-parallel.html">
+  <span class="no">05</span>
+  <span class="t">两张卡，一次前向</span>
+  <span class="m">55 min</span>
+  <span class="d">列并行/行并行、all-reduce 的位置、共享内存指令通道。</span>
+</a>
+
+<a class="lesson-card" href="lessons/0006-cuda-graph.html">
+  <span class="no">06</span>
+  <span class="t">把整个 decode 录成一张图</span>
+  <span class="m">45 min</span>
+  <span class="d">kernel launch 开销、图池复用、为什么 prefill 不录图。</span>
+</a>
+
+<a class="lesson-card" href="lessons/0007-run-and-measure.html">
+  <span class="no">07</span>
+  <span class="t">你自己的第一组数字</span>
+  <span class="m">90 min</span>
+  <span class="d">WSL 实跑、三组对照实验、把吞吐曲线画出来。</span>
+</a>
+
+<p class="part">第二部分 · vLLM v1：工程化带来什么</p>
+
+<a class="lesson-card" href="lessons/0008-vllm-v1-architecture.html">
+  <span class="no">08</span>
+  <span class="t">从 1450 行到 20 万行</span>
+  <span class="m">55 min</span>
+  <span class="d">三层结构、EngineCore、异步调度、与 nano-vllm 的映射表。</span>
+</a>
+
+<a class="lesson-card" href="lessons/0009-vllm-scheduling-kv.html">
+  <span class="no">09</span>
+  <span class="t">预算、抢占、淘汰</span>
+  <span class="m">60 min</span>
+  <span class="d">token 预算取代阶段、先 running 后 waiting、LRU 块池、KV group。</span>
+</a>
+
+<a class="lesson-card" href="lessons/0010-vllm-execution-layer.html">
+  <span class="no">10</span>
+  <span class="t">一张图的三种录法</span>
+  <span class="m">55 min</span>
+  <span class="d">Executor / Worker / attention backend、CUDAGraphMode 的五种取值。</span>
+</a>
+
+<a class="lesson-card" href="lessons/0011-vllm-advanced.html">
+  <span class="no">11</span>
+  <span class="t">同一套调度，五种玩法</span>
+  <span class="m">60 min</span>
+  <span class="d">投机解码、PD 分离、结构化输出、异步调度、睡眠唤醒。</span>
+</a>
+
+<p class="part">第三部分 · DeepInfer：为单一模型做到极限</p>
+
+<a class="lesson-card" href="lessons/0012-deepinfer-overview.html">
+  <span class="no">12</span>
+  <span class="t">把调度器下沉到 C++</span>
+  <span class="m">50 min</span>
+  <span class="d">SM100/Ascend 950、C++ Scheduler、FlopsEstimator、内核三件套。</span>
+</a>
+
+<a class="lesson-card" href="lessons/0013-deepinfer-moe-eplb.html">
+  <span class="no">13</span>
+  <span class="t">当 8 个专家里 3 个被挤爆</span>
+  <span class="m">55 min</span>
+  <span class="d">EP 的 all-to-all、冗余副本、峰值最小化的贪心排布。</span>
+</a>
+
+<a class="lesson-card" href="lessons/0014-dspark-batch-invariance.html">
+  <span class="no">14</span>
+  <span class="t">猜五个，验证几个？</span>
+  <span class="m">55 min</span>
+  <span class="d">置信度头、可变长验证、SWA 有界重放、batch invariance。</span>
+</a>
+
+<!-- DEEP-DIVE-START --><p class="part">深入篇 · Transformer 逐步拆解</p><a class="lesson-card" href="lessons/0015-transformer-tensor-contract.html"><span class="no">15</span><span class="t">从一个 token 到一个词表：先把形状算对</span><span class="m">12–18 min + 练习</span><span class="d">独立画出 Qwen3 的 token → embedding → decoder → logits，并算出 Q/K/V 的真实宽度。</span></a><a class="lesson-card" href="lessons/0016-attention-by-hand.html"><span class="no">16</span><span class="t">亲手算一次 Attention：分数、权重、加权和</span><span class="m">12–18 min + 练习</span><span class="d">从小矩阵算出 attention 输出，区分 QKᵀ 分数、softmax 权重和最终向量。</span></a><a class="lesson-card" href="lessons/0017-causal-mask-and-generation.html"><span class="no">17</span><span class="t">因果遮罩：训练能并行，生成为什么要等</span><span class="m">12–18 min + 练习</span><span class="d">为 prefill、单步 decode 和带缓存的 chunk 写出正确的可见区间。</span></a><a class="lesson-card" href="lessons/0018-multihead-gqa.html"><span class="no">18</span><span class="t">MHA、MQA、GQA：头共享了什么</span><span class="m">12–18 min + 练习</span><span class="d">给 query head 找到它使用的 KV head，并算清 GQA 节省哪一部分显存。</span></a><a class="lesson-card" href="lessons/0019-rope-position.html"><span class="no">19</span><span class="t">RoPE：旋转的是向量，保留的是相对位置</span><span class="m">12–18 min + 练习</span><span class="d">手算一个二维旋转，并证明 Q/K 共同平移后点积为何不变。</span></a><a class="lesson-card" href="lessons/0020-norm-residual-swiglu.html"><span class="no">20</span><span class="t">一个 decoder block：残差、RMSNorm 与 SwiGLU</span><span class="m">12–18 min + 练习</span><span class="d">把简洁的数学残差公式还原到 nano-vllm 的双变量 hidden_states / residual 实现。</span></a><a class="lesson-card" href="lessons/0021-kv-cache-equivalence.html"><span class="no">21</span><span class="t">KV cache：用等价实验理解“只算新 token”</span><span class="m">12–18 min + 练习</span><span class="d">解释为什么存 K/V 不存历史 Q，并验证完整前向与增量前向在误差容限内一致。</span></a><a class="lesson-card" href="lessons/0022-flashattention-online-softmax.html"><span class="no">22</span><span class="t">FlashAttention：不存整张分数表，如何仍然精确</span><span class="m">12–18 min + 练习</span><span class="d">用在线 softmax 的三个累积量解释 tiling，区分省 IO 与减少数学运算。</span></a><a class="lesson-card" href="lessons/0023-logits-sampling.html"><span class="no">23</span><span class="t">从 logits 到 token：温度、过滤与随机性</span><span class="m">12–18 min + 练习</span><span class="d">区分 logits、概率、top-p 和随机采样，解释相同种子为什么还不足以保证批不变。</span></a><p class="part">深入篇 · nano-vllm 源码追踪</p><a class="lesson-card" href="lessons/0024-nano-state-trace.html"><span class="no">24</span><span class="t">跟踪一个请求：token 数、已缓存数与下一次计算</span><span class="m">12–18 min + 练习</span><span class="d">用状态表走完 chunked prefill 和两次 decode，定位每一次计数器更新。</span></a><a class="lesson-card" href="lessons/0025-nano-memory-lifecycle.html"><span class="no">25</span><span class="t">从逻辑 token 到物理槽：块生命周期与前缀命中</span><span class="m">12–18 min + 练习</span><span class="d">手算 block_table / slot_mapping，并区分空闲、可复用缓存、正在被引用这三个状态。</span></a><a class="lesson-card" href="lessons/0026-nano-runner-graph.html"><span class="no">26</span><span class="t">Runner 是翻译层：变长 batch、静态地址与 CUDA Graph</span><span class="m">12–18 min + 练习</span><span class="d">从两条变长请求构造输入元数据，并说清 graph replay 固定什么、允许什么变化。</span></a><p class="part">深入篇 · vLLM V1 运行时细节</p><a class="lesson-card" href="lessons/0027-vllm-token-ledger.html"><span class="no">27</span><span class="t">vLLM 调度账本：预算、在途工作与投机回退</span><span class="m">12–18 min + 练习</span><span class="d">正确计算一次混合调度的token预算，并在拒绝draft后修正computed计数。</span></a><a class="lesson-card" href="lessons/0028-vllm-prefix-block-pool.html"><span class="no">28</span><span class="t">vLLM KV 管理：hash 身份、free队列与淘汰</span><span class="m">12–18 min + 练习</span><span class="d">解释“已算hash”不等于“可共享KV”，并手算一次前缀命中与块池回收。</span></a><a class="lesson-card" href="lessons/0029-vllm-runner-and-measurement.html"><span class="no">29</span><span class="t">vLLM 执行层：六个token怎样变成三条请求的结果</span><span class="m">12–18 min + 练习</span><span class="d">手算GPU runner的关键数组，并建立不会混淆输入、输出、draft的测量口径。</span></a><p class="part">深入篇 · DeepInfer 专项精读</p><a class="lesson-card" href="lessons/0030-deepinfer-runtime-boundary.html"><span class="no">30</span><span class="t">DeepInfer：公开引擎边界与 C++ 调度链</span><span class="m">12–18 min + 练习</span><span class="d">从Python请求跟踪到C++ batch，并区分公开离线引擎与完整线上服务所需组件。</span></a><a class="lesson-card" href="lessons/0031-deepinfer-moe-placement.html"><span class="no">31</span><span class="t">MoE 与 EPLB：token 去哪里，专家副本放哪里</span><span class="m">12–18 min + 练习</span><span class="d">走通gate→dispatch→专家计算→combine，并手算一个冗余副本的放置与映射更新。</span></a><a class="lesson-card" href="lessons/0032-deepinfer-dspark-state.html"><span class="no">32</span><span class="t">DSpark：验证预算、接受前缀与可复现边界</span><span class="m">12–18 min + 练习</span><span class="d">从逐位置置信度算累计接受率，再解释验证预算、KV回退与确定性条件。</span></a><!-- DEEP-DIVE-END --><h2><span class="num">+</span>配套材料</h2>
+
+<ul>
+  <li><a href="reference/dimension-walkthrough.html">维度转换逐格图解与本地验证</a></li><li><a href="reference/transformer-shapes.html">Transformer形状与公式速查</a></li><li><a href="reference/framework-map.html">三框架对照</a></li><li><a href="reference/source-map.html">56份离线源码摘录</a></li><li><a href="reference/visual-atlas.html">46张图解索引</a></li><li><a href="reference/local-labs.html">本地模拟、GPU实验与运行报告</a></li><li><a href="labs/README.md">7个CPU实验与真实测量模板</a></li><li><a href="reference/glossary.html">术语表</a>——所有课共用，面试前扫一遍。</li>
+  <li><a href="RESOURCES.md">RESOURCES.md</a>——已核验的主源与社区。</li>
+</ul>
+
+<h2><span class="num">+</span>源码版本</h2><p>网页可直接阅读源码摘录；本地读码请先按<a href="reference/start-here.html">下载与准备指南</a>获取固定版本。</p>
+
+<ul>
+  <li><code>vendor/nano-vllm</code> @ <code>bb823b3</code>（1,450 行）</li>
+  <li><code>vendor/vllm</code> @ <code>ef9339e</code>（v1 目录 208,340 行）</li>
+  <li><code>vendor/deepinfer</code> @ <code>a679bb8</code></li>
+</ul>
+
+<div class="ask-teacher">
+  <p><strong>建议的学习顺序</strong>：15–23补齐Transformer细节 → 01–06结合24–26读nano → 08–11结合27–29读vLLM → 12–14结合30–32读DeepInfer。07课用于WSL真实实验；完整安排见复习路线。</p>
 </div>
-<div class="post_content markdown"><div class="p_part"><p></p></div></div>
-<div class="post_footer">
-<section class="info weaklink"><i class="iconfont icon-calendar"></i><span style="margin-right:15px">2021-07-19</span><i class="iconfont icon-category"></i><span class="weaklink" style="margin-right:13px"><a href="https://Diomchen.github.io/tag/hFYxkLB1R/"class="tag">图数据库</a>| <a href="https://Diomchen.github.io/tag/VIZm0jtmD/"class="tag">neo4j</a></span><i class="iconfont icon-caret-down"></i><span class="weaklink"style="margin-right:20px;">1359字</span><i class="iconfont icon-naozhong"></i><span class="weaklink"style="margin-right:15px;">7 min read</span></section></div></div>
-<div class="round-shape-one"></div><div class="paginator pager pagination"><div class="paginator_container pagination_container"><div style="clear:both;height:0;"></div></div></div>
+
+<footer class="lesson-footer">
+  <h3>更新方式</h3>
+  <ul>
+    <li>课程维护：Diomchen。发现问题可在<a href="https://github.com/Diomchen/Diomchen.github.io/issues">GitHub Issues</a>反馈。</li>
+    <li>源码版本变了，行号可能对不上——以 <code>git log</code> 的 commit 为准。</li>
+  </ul>
+<p><a href="reference/attribution.html">第三方源码归属与许可证</a> · <a href="reference/start-here.html">课程使用说明</a></p></footer>
+
 </div>
-</div>
-</div>
-</div>
-<a id="scrollUp" href="#top" style="position: fixed; z-index: 2147483647; display: block;"></a><div class="footer animated fadeInDown"><div class="site_footer"><div class="mysocials"><div class="my_socials"></div></div><div class="copyright"id="copyright">Powered by <a href="https://github.com/getgridea/gridea" target="_blank">Gridea</a>Copyright © 2018-2020 <a href="https://Diomchen.github.io" style="margin:0;">DiomChen&#39;s Blog</a>.</div>
-<span style="display: inline;margin-right:15px;">👁<strong><span id="busuanzi_value_site_uv"></span></strong></span><span id="busuanzi_container_page_pv" style="display: inline;"><span>📚<strong>5</strong> posts</span></div></div>
-<script>
-console.log("\n %c \u26a1Theme: Bitcron-pro Author's Blog:https://blog.blinkstar.cn  Writen By Serence  \n\n", "color: #ffffff; background: rgba(49, 49, 49, 0.85); padding:5px 0;border-radius:5px;", );
-</script>
-<script src="https://cdn.jsdelivr.net/npm/instant.page@3.0.0/instantpage.min.js" type="module" defer></script>
 </body>
 </html>

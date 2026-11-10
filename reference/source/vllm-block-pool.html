@@ -1,0 +1,150 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>vllm-block-pool</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>vllm-block-pool</h1><p class="source-note">vllm/vllm/v1/core/block_pool.py · ef9339e · L681–830 · <a href="https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/core/block_pool.py#L681-L830">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>vllm · Apache-2.0</strong><p>Copyright contributors to the vLLM project。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L681"><a class="line-no" href="#L681">681</a>    def get_new_blocks(self, num_blocks: int) -&gt; list[KVCacheBlock]:</span>
+<span class="source-line" id="L682"><a class="line-no" href="#L682">682</a>        &quot;&quot;&quot;Get new blocks from the free block pool.</span>
+<span class="source-line" id="L683"><a class="line-no" href="#L683">683</a></span>
+<span class="source-line" id="L684"><a class="line-no" href="#L684">684</a>        Note that we do not check block cache in this function.</span>
+<span class="source-line" id="L685"><a class="line-no" href="#L685">685</a></span>
+<span class="source-line" id="L686"><a class="line-no" href="#L686">686</a>        Args:</span>
+<span class="source-line" id="L687"><a class="line-no" href="#L687">687</a>            num_blocks: The number of blocks to allocate.</span>
+<span class="source-line" id="L688"><a class="line-no" href="#L688">688</a></span>
+<span class="source-line" id="L689"><a class="line-no" href="#L689">689</a>        Returns:</span>
+<span class="source-line" id="L690"><a class="line-no" href="#L690">690</a>            A list of new block.</span>
+<span class="source-line" id="L691"><a class="line-no" href="#L691">691</a></span>
+<span class="source-line" id="L692"><a class="line-no" href="#L692">692</a>        &quot;&quot;&quot;</span>
+<span class="source-line" id="L693"><a class="line-no" href="#L693">693</a>        if num_blocks &gt; self.get_num_free_blocks():</span>
+<span class="source-line" id="L694"><a class="line-no" href="#L694">694</a>            raise ValueError(f&quot;Cannot get {num_blocks} free blocks from the pool&quot;)</span>
+<span class="source-line" id="L695"><a class="line-no" href="#L695">695</a></span>
+<span class="source-line" id="L696"><a class="line-no" href="#L696">696</a>        ret: list[KVCacheBlock] = self.free_block_queue.popleft_n(num_blocks)</span>
+<span class="source-line" id="L697"><a class="line-no" href="#L697">697</a></span>
+<span class="source-line" id="L698"><a class="line-no" href="#L698">698</a>        if self._reuse_watchers:</span>
+<span class="source-line" id="L699"><a class="line-no" href="#L699">699</a>            self._notify_reuse(ret)</span>
+<span class="source-line" id="L700"><a class="line-no" href="#L700">700</a></span>
+<span class="source-line" id="L701"><a class="line-no" href="#L701">701</a>        # In order to only iterate the list once, we duplicated code a bit</span>
+<span class="source-line" id="L702"><a class="line-no" href="#L702">702</a>        if self.enable_caching:</span>
+<span class="source-line" id="L703"><a class="line-no" href="#L703">703</a>            for block in ret:</span>
+<span class="source-line" id="L704"><a class="line-no" href="#L704">704</a>                self._maybe_evict_cached_block(block)</span>
+<span class="source-line" id="L705"><a class="line-no" href="#L705">705</a>                assert block.ref_cnt == 0</span>
+<span class="source-line" id="L706"><a class="line-no" href="#L706">706</a>                block.ref_cnt += 1</span>
+<span class="source-line" id="L707"><a class="line-no" href="#L707">707</a>                if self.metrics_collector:</span>
+<span class="source-line" id="L708"><a class="line-no" href="#L708">708</a>                    self.metrics_collector.on_block_allocated(block)</span>
+<span class="source-line" id="L709"><a class="line-no" href="#L709">709</a>        else:</span>
+<span class="source-line" id="L710"><a class="line-no" href="#L710">710</a>            for block in ret:</span>
+<span class="source-line" id="L711"><a class="line-no" href="#L711">711</a>                assert block.ref_cnt == 0</span>
+<span class="source-line" id="L712"><a class="line-no" href="#L712">712</a>                block.ref_cnt += 1</span>
+<span class="source-line" id="L713"><a class="line-no" href="#L713">713</a>                if self.metrics_collector:</span>
+<span class="source-line" id="L714"><a class="line-no" href="#L714">714</a>                    self.metrics_collector.on_block_allocated(block)</span>
+<span class="source-line" id="L715"><a class="line-no" href="#L715">715</a>        return ret</span>
+<span class="source-line" id="L716"><a class="line-no" href="#L716">716</a></span>
+<span class="source-line" id="L717"><a class="line-no" href="#L717">717</a>    def _notify_reuse(self, blocks: Iterable[KVCacheBlock]) -&gt; None:</span>
+<span class="source-line" id="L718"><a class="line-no" href="#L718">718</a>        for block in blocks:</span>
+<span class="source-line" id="L719"><a class="line-no" href="#L719">719</a>            watcher = self._reuse_watchers.pop(block.block_id, None)</span>
+<span class="source-line" id="L720"><a class="line-no" href="#L720">720</a>            if watcher is not None:</span>
+<span class="source-line" id="L721"><a class="line-no" href="#L721">721</a>                watcher(block)</span>
+<span class="source-line" id="L722"><a class="line-no" href="#L722">722</a></span>
+<span class="source-line" id="L723"><a class="line-no" href="#L723">723</a>    def unpin_blocks(</span>
+<span class="source-line" id="L724"><a class="line-no" href="#L724">724</a>        self,</span>
+<span class="source-line" id="L725"><a class="line-no" href="#L725">725</a>        blocks: Iterable[KVCacheBlock],</span>
+<span class="source-line" id="L726"><a class="line-no" href="#L726">726</a>        on_reuse: Callable[[KVCacheBlock], None],</span>
+<span class="source-line" id="L727"><a class="line-no" href="#L727">727</a>    ) -&gt; None:</span>
+<span class="source-line" id="L728"><a class="line-no" href="#L728">728</a>        &quot;&quot;&quot;Release references to blocks that stay readable until reused.</span>
+<span class="source-line" id="L729"><a class="line-no" href="#L729">729</a></span>
+<span class="source-line" id="L730"><a class="line-no" href="#L730">730</a>        The blocks become last-resort eviction candidates regardless of prefix</span>
+<span class="source-line" id="L731"><a class="line-no" href="#L731">731</a>        caching: they join the tail of the free queue and count as free.</span>
+<span class="source-line" id="L732"><a class="line-no" href="#L732">732</a>        ``on_reuse`` fires when ``get_new_blocks`` hands a block out (or the</span>
+<span class="source-line" id="L733"><a class="line-no" href="#L733">733</a>        cache is reset), so the caller can stop reading it.</span>
+<span class="source-line" id="L734"><a class="line-no" href="#L734">734</a>        &quot;&quot;&quot;</span>
+<span class="source-line" id="L735"><a class="line-no" href="#L735">735</a>        released: list[KVCacheBlock] = []</span>
+<span class="source-line" id="L736"><a class="line-no" href="#L736">736</a>        for block in blocks:</span>
+<span class="source-line" id="L737"><a class="line-no" href="#L737">737</a>            assert block.ref_cnt &gt; 0 and not block.is_null</span>
+<span class="source-line" id="L738"><a class="line-no" href="#L738">738</a>            block.ref_cnt -= 1</span>
+<span class="source-line" id="L739"><a class="line-no" href="#L739">739</a>            self._reuse_watchers[block.block_id] = on_reuse</span>
+<span class="source-line" id="L740"><a class="line-no" href="#L740">740</a>            if block.ref_cnt == 0:</span>
+<span class="source-line" id="L741"><a class="line-no" href="#L741">741</a>                released.append(block)</span>
+<span class="source-line" id="L742"><a class="line-no" href="#L742">742</a>        self.free_block_queue.append_n(released)</span>
+<span class="source-line" id="L743"><a class="line-no" href="#L743">743</a></span>
+<span class="source-line" id="L744"><a class="line-no" href="#L744">744</a>    def _maybe_evict_cached_block(self, block: KVCacheBlock) -&gt; bool:</span>
+<span class="source-line" id="L745"><a class="line-no" href="#L745">745</a>        &quot;&quot;&quot;If a block is cached in `cached_block_hash_to_block`, we reset its hash</span>
+<span class="source-line" id="L746"><a class="line-no" href="#L746">746</a>        metadata and evict it from the cache.</span>
+<span class="source-line" id="L747"><a class="line-no" href="#L747">747</a></span>
+<span class="source-line" id="L748"><a class="line-no" href="#L748">748</a>        Args:</span>
+<span class="source-line" id="L749"><a class="line-no" href="#L749">749</a>            block: The block to evict.</span>
+<span class="source-line" id="L750"><a class="line-no" href="#L750">750</a></span>
+<span class="source-line" id="L751"><a class="line-no" href="#L751">751</a>        Returns:</span>
+<span class="source-line" id="L752"><a class="line-no" href="#L752">752</a>            True if the block is evicted, False otherwise.</span>
+<span class="source-line" id="L753"><a class="line-no" href="#L753">753</a></span>
+<span class="source-line" id="L754"><a class="line-no" href="#L754">754</a>        &quot;&quot;&quot;</span>
+<span class="source-line" id="L755"><a class="line-no" href="#L755">755</a>        # Clean up metrics tracking first to prevent leaks</span>
+<span class="source-line" id="L756"><a class="line-no" href="#L756">756</a>        if self.metrics_collector:</span>
+<span class="source-line" id="L757"><a class="line-no" href="#L757">757</a>            self.metrics_collector.on_block_evicted(block)</span>
+<span class="source-line" id="L758"><a class="line-no" href="#L758">758</a></span>
+<span class="source-line" id="L759"><a class="line-no" href="#L759">759</a>        evicted_hashes = self._remove_cached_block_hashes(block)</span>
+<span class="source-line" id="L760"><a class="line-no" href="#L760">760</a>        if not evicted_hashes:</span>
+<span class="source-line" id="L761"><a class="line-no" href="#L761">761</a>            # The block doesn&#x27;t have hash, eviction is not needed</span>
+<span class="source-line" id="L762"><a class="line-no" href="#L762">762</a>            return False</span>
+<span class="source-line" id="L763"><a class="line-no" href="#L763">763</a></span>
+<span class="source-line" id="L764"><a class="line-no" href="#L764">764</a>        self._emit_block_removed_events(evicted_hashes)</span>
+<span class="source-line" id="L765"><a class="line-no" href="#L765">765</a>        return True</span>
+<span class="source-line" id="L766"><a class="line-no" href="#L766">766</a></span>
+<span class="source-line" id="L767"><a class="line-no" href="#L767">767</a>    def touch(self, blocks: Sequence[KVCacheBlock]) -&gt; None:</span>
+<span class="source-line" id="L768"><a class="line-no" href="#L768">768</a>        &quot;&quot;&quot;Touch a block increases its reference count by 1, and may remove</span>
+<span class="source-line" id="L769"><a class="line-no" href="#L769">769</a>        the block from the free queue. This is used when a block is hit by</span>
+<span class="source-line" id="L770"><a class="line-no" href="#L770">770</a>        another request with the same prefix.</span>
+<span class="source-line" id="L771"><a class="line-no" href="#L771">771</a></span>
+<span class="source-line" id="L772"><a class="line-no" href="#L772">772</a>        Args:</span>
+<span class="source-line" id="L773"><a class="line-no" href="#L773">773</a>            blocks: A list of blocks to touch.</span>
+<span class="source-line" id="L774"><a class="line-no" href="#L774">774</a></span>
+<span class="source-line" id="L775"><a class="line-no" href="#L775">775</a>        &quot;&quot;&quot;</span>
+<span class="source-line" id="L776"><a class="line-no" href="#L776">776</a>        for block in blocks:</span>
+<span class="source-line" id="L777"><a class="line-no" href="#L777">777</a>            if block.is_null:</span>
+<span class="source-line" id="L778"><a class="line-no" href="#L778">778</a>                continue</span>
+<span class="source-line" id="L779"><a class="line-no" href="#L779">779</a>            # ref_cnt=0 means this block is in the free list (i.e. eviction</span>
+<span class="source-line" id="L780"><a class="line-no" href="#L780">780</a>            # candidate), so remove it.</span>
+<span class="source-line" id="L781"><a class="line-no" href="#L781">781</a>            if block.ref_cnt == 0:</span>
+<span class="source-line" id="L782"><a class="line-no" href="#L782">782</a>                self.free_block_queue.remove(block)</span>
+<span class="source-line" id="L783"><a class="line-no" href="#L783">783</a>            block.ref_cnt += 1</span>
+<span class="source-line" id="L784"><a class="line-no" href="#L784">784</a>            if self.metrics_collector:</span>
+<span class="source-line" id="L785"><a class="line-no" href="#L785">785</a>                self.metrics_collector.on_block_accessed(block)</span>
+<span class="source-line" id="L786"><a class="line-no" href="#L786">786</a></span>
+<span class="source-line" id="L787"><a class="line-no" href="#L787">787</a>    def is_block_writable(self, block: KVCacheBlock) -&gt; bool:</span>
+<span class="source-line" id="L788"><a class="line-no" href="#L788">788</a>        &quot;&quot;&quot;Return whether a block can be mutated by its sole owner.&quot;&quot;&quot;</span>
+<span class="source-line" id="L789"><a class="line-no" href="#L789">789</a>        return not block.is_null and block.ref_cnt == 1 and block.block_hash is None</span>
+<span class="source-line" id="L790"><a class="line-no" href="#L790">790</a></span>
+<span class="source-line" id="L791"><a class="line-no" href="#L791">791</a>    def free_blocks(</span>
+<span class="source-line" id="L792"><a class="line-no" href="#L792">792</a>        self, ordered_blocks: Iterable[KVCacheBlock], evict_first: bool = False</span>
+<span class="source-line" id="L793"><a class="line-no" href="#L793">793</a>    ) -&gt; None:</span>
+<span class="source-line" id="L794"><a class="line-no" href="#L794">794</a>        &quot;&quot;&quot;Free a list of blocks. The blocks should be ordered by their</span>
+<span class="source-line" id="L795"><a class="line-no" href="#L795">795</a>        eviction priority, where the first block will be evicted first.</span>
+<span class="source-line" id="L796"><a class="line-no" href="#L796">796</a></span>
+<span class="source-line" id="L797"><a class="line-no" href="#L797">797</a>        Args:</span>
+<span class="source-line" id="L798"><a class="line-no" href="#L798">798</a>            ordered_blocks: A list of blocks to free ordered by their eviction</span>
+<span class="source-line" id="L799"><a class="line-no" href="#L799">799</a>                priority.</span>
+<span class="source-line" id="L800"><a class="line-no" href="#L800">800</a>            evict_first: Also put freed cached blocks at the front of the free</span>
+<span class="source-line" id="L801"><a class="line-no" href="#L801">801</a>                queue, so they are evicted before other cached blocks. For</span>
+<span class="source-line" id="L802"><a class="line-no" href="#L802">802</a>                blocks whose contents another tier already holds.</span>
+<span class="source-line" id="L803"><a class="line-no" href="#L803">803</a></span>
+<span class="source-line" id="L804"><a class="line-no" href="#L804">804</a>        &quot;&quot;&quot;</span>
+<span class="source-line" id="L805"><a class="line-no" href="#L805">805</a>        # Identify blocks with hash (LRU cache) and without it (never match APC)</span>
+<span class="source-line" id="L806"><a class="line-no" href="#L806">806</a>        blocks_to_evict_last = []</span>
+<span class="source-line" id="L807"><a class="line-no" href="#L807">807</a>        blocks_to_evict_first = []</span>
+<span class="source-line" id="L808"><a class="line-no" href="#L808">808</a>        other_pools: dict[BlockPool, list[KVCacheBlock]] = {}</span>
+<span class="source-line" id="L809"><a class="line-no" href="#L809">809</a>        for block in ordered_blocks:</span>
+<span class="source-line" id="L810"><a class="line-no" href="#L810">810</a>            if block.is_null:  # never pooled; its ref_cnt is not maintained</span>
+<span class="source-line" id="L811"><a class="line-no" href="#L811">811</a>                continue</span>
+<span class="source-line" id="L812"><a class="line-no" href="#L812">812</a>            if block.pool is not None and block.pool is not self._weak_self:</span>
+<span class="source-line" id="L813"><a class="line-no" href="#L813">813</a>                pool = block.pool()</span>
+<span class="source-line" id="L814"><a class="line-no" href="#L814">814</a>                if pool is not None:</span>
+<span class="source-line" id="L815"><a class="line-no" href="#L815">815</a>                    other_pools.setdefault(pool, []).append(block)</span>
+<span class="source-line" id="L816"><a class="line-no" href="#L816">816</a>                continue</span>
+<span class="source-line" id="L817"><a class="line-no" href="#L817">817</a>            block.ref_cnt -= 1</span>
+<span class="source-line" id="L818"><a class="line-no" href="#L818">818</a>            if block.ref_cnt == 0:</span>
+<span class="source-line" id="L819"><a class="line-no" href="#L819">819</a>                if block.block_hash is None or not self.enable_caching or evict_first:</span>
+<span class="source-line" id="L820"><a class="line-no" href="#L820">820</a>                    # LIFO reuse of non-cached blocks for better GPU locality,</span>
+<span class="source-line" id="L821"><a class="line-no" href="#L821">821</a>                    # and of cached ones when asked to evict them first.</span>
+<span class="source-line" id="L822"><a class="line-no" href="#L822">822</a>                    blocks_to_evict_first.append(block)</span>
+<span class="source-line" id="L823"><a class="line-no" href="#L823">823</a>                else:</span>
+<span class="source-line" id="L824"><a class="line-no" href="#L824">824</a>                    # FIFO reuse of cached blocks for LRU eviction behavior.</span>
+<span class="source-line" id="L825"><a class="line-no" href="#L825">825</a>                    blocks_to_evict_last.append(block)</span>
+<span class="source-line" id="L826"><a class="line-no" href="#L826">826</a></span>
+<span class="source-line" id="L827"><a class="line-no" href="#L827">827</a>        # Blocks to reuse first are prepended to the front of the free queue.</span>
+<span class="source-line" id="L828"><a class="line-no" href="#L828">828</a>        self.free_block_queue.prepend_n(blocks_to_evict_first)</span>
+<span class="source-line" id="L829"><a class="line-no" href="#L829">829</a>        # Blocks to reuse last are appended to the end of the free queue.</span>
+<span class="source-line" id="L830"><a class="line-no" href="#L830">830</a>        self.free_block_queue.append_n(blocks_to_evict_last)</span></code></pre></main></body></html>

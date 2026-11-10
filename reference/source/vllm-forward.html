@@ -1,0 +1,55 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>vllm-forward</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>vllm-forward</h1><p class="source-note">vllm/vllm/v1/worker/gpu_model_runner.py · ef9339e · L4136–4190 · <a href="https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/worker/gpu_model_runner.py#L4136-L4190">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>vllm · Apache-2.0</strong><p>Copyright contributors to the vLLM project。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L4136"><a class="line-no" href="#L4136">4136</a>        with (</span>
+<span class="source-line" id="L4137"><a class="line-no" href="#L4137">4137</a>            set_forward_context(</span>
+<span class="source-line" id="L4138"><a class="line-no" href="#L4138">4138</a>                attn_metadata,</span>
+<span class="source-line" id="L4139"><a class="line-no" href="#L4139">4139</a>                self.vllm_config,</span>
+<span class="source-line" id="L4140"><a class="line-no" href="#L4140">4140</a>                num_tokens=num_tokens_padded,</span>
+<span class="source-line" id="L4141"><a class="line-no" href="#L4141">4141</a>                num_tokens_across_dp=num_tokens_across_dp,</span>
+<span class="source-line" id="L4142"><a class="line-no" href="#L4142">4142</a>                cudagraph_runtime_mode=cudagraph_mode,</span>
+<span class="source-line" id="L4143"><a class="line-no" href="#L4143">4143</a>                batch_descriptor=batch_desc,</span>
+<span class="source-line" id="L4144"><a class="line-no" href="#L4144">4144</a>                ubatch_slices=ubatch_slices_padded,</span>
+<span class="source-line" id="L4145"><a class="line-no" href="#L4145">4145</a>                slot_mapping=slot_mappings,</span>
+<span class="source-line" id="L4146"><a class="line-no" href="#L4146">4146</a>                skip_compiled=has_encoder_input,</span>
+<span class="source-line" id="L4147"><a class="line-no" href="#L4147">4147</a>                is_padding=is_padding,</span>
+<span class="source-line" id="L4148"><a class="line-no" href="#L4148">4148</a>            ),</span>
+<span class="source-line" id="L4149"><a class="line-no" href="#L4149">4149</a>            record_function_or_nullcontext(&quot;gpu_model_runner: forward&quot;),</span>
+<span class="source-line" id="L4150"><a class="line-no" href="#L4150">4150</a>            self.maybe_get_kv_connector_output(</span>
+<span class="source-line" id="L4151"><a class="line-no" href="#L4151">4151</a>                scheduler_output,</span>
+<span class="source-line" id="L4152"><a class="line-no" href="#L4152">4152</a>                defer_finalize=defer_kv_connector_finalize,</span>
+<span class="source-line" id="L4153"><a class="line-no" href="#L4153">4153</a>            ) as kv_connector_output,</span>
+<span class="source-line" id="L4154"><a class="line-no" href="#L4154">4154</a>        ):</span>
+<span class="source-line" id="L4155"><a class="line-no" href="#L4155">4155</a>            model_output = self._model_forward(</span>
+<span class="source-line" id="L4156"><a class="line-no" href="#L4156">4156</a>                input_ids=input_ids,</span>
+<span class="source-line" id="L4157"><a class="line-no" href="#L4157">4157</a>                positions=positions,</span>
+<span class="source-line" id="L4158"><a class="line-no" href="#L4158">4158</a>                intermediate_tensors=intermediate_tensors,</span>
+<span class="source-line" id="L4159"><a class="line-no" href="#L4159">4159</a>                inputs_embeds=inputs_embeds,</span>
+<span class="source-line" id="L4160"><a class="line-no" href="#L4160">4160</a>                **model_kwargs,</span>
+<span class="source-line" id="L4161"><a class="line-no" href="#L4161">4161</a>            )</span>
+<span class="source-line" id="L4162"><a class="line-no" href="#L4162">4162</a></span>
+<span class="source-line" id="L4163"><a class="line-no" href="#L4163">4163</a>        with record_function_or_nullcontext(&quot;gpu_model_runner: postprocess&quot;):</span>
+<span class="source-line" id="L4164"><a class="line-no" href="#L4164">4164</a>            if self.use_aux_hidden_state_outputs:</span>
+<span class="source-line" id="L4165"><a class="line-no" href="#L4165">4165</a>                # True when EAGLE 3 is used.</span>
+<span class="source-line" id="L4166"><a class="line-no" href="#L4166">4166</a>                hidden_states, aux_hidden_states = model_output</span>
+<span class="source-line" id="L4167"><a class="line-no" href="#L4167">4167</a>            else:</span>
+<span class="source-line" id="L4168"><a class="line-no" href="#L4168">4168</a>                # Common case.</span>
+<span class="source-line" id="L4169"><a class="line-no" href="#L4169">4169</a>                hidden_states = model_output</span>
+<span class="source-line" id="L4170"><a class="line-no" href="#L4170">4170</a>                aux_hidden_states = None</span>
+<span class="source-line" id="L4171"><a class="line-no" href="#L4171">4171</a></span>
+<span class="source-line" id="L4172"><a class="line-no" href="#L4172">4172</a>            if not self.broadcast_pp_output:</span>
+<span class="source-line" id="L4173"><a class="line-no" href="#L4173">4173</a>                # Common case.</span>
+<span class="source-line" id="L4174"><a class="line-no" href="#L4174">4174</a>                if not get_pp_group().is_last_rank:</span>
+<span class="source-line" id="L4175"><a class="line-no" href="#L4175">4175</a>                    # Return the intermediate tensors.</span>
+<span class="source-line" id="L4176"><a class="line-no" href="#L4176">4176</a>                    assert isinstance(hidden_states, IntermediateTensors)</span>
+<span class="source-line" id="L4177"><a class="line-no" href="#L4177">4177</a>                    self.kv_connector_output = kv_connector_output</span>
+<span class="source-line" id="L4178"><a class="line-no" href="#L4178">4178</a>                    return hidden_states</span>
+<span class="source-line" id="L4179"><a class="line-no" href="#L4179">4179</a></span>
+<span class="source-line" id="L4180"><a class="line-no" href="#L4180">4180</a>                if self.is_pooling_model:</span>
+<span class="source-line" id="L4181"><a class="line-no" href="#L4181">4181</a>                    # Return the pooling output.</span>
+<span class="source-line" id="L4182"><a class="line-no" href="#L4182">4182</a>                    return self._pool(</span>
+<span class="source-line" id="L4183"><a class="line-no" href="#L4183">4183</a>                        hidden_states,</span>
+<span class="source-line" id="L4184"><a class="line-no" href="#L4184">4184</a>                        num_scheduled_tokens,</span>
+<span class="source-line" id="L4185"><a class="line-no" href="#L4185">4185</a>                        num_scheduled_tokens_np,</span>
+<span class="source-line" id="L4186"><a class="line-no" href="#L4186">4186</a>                        kv_connector_output,</span>
+<span class="source-line" id="L4187"><a class="line-no" href="#L4187">4187</a>                    )</span>
+<span class="source-line" id="L4188"><a class="line-no" href="#L4188">4188</a></span>
+<span class="source-line" id="L4189"><a class="line-no" href="#L4189">4189</a>                sample_hidden_states = hidden_states[logits_indices]</span>
+<span class="source-line" id="L4190"><a class="line-no" href="#L4190">4190</a>                logits = self.model.compute_logits(sample_hidden_states)</span></code></pre></main></body></html>

@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01 · 90 行，一个推理引擎</title>
+<link rel="stylesheet" href="../assets/course.css?v=2">
+</head>
+<body>
+<div class="page">
+
+<nav class="lesson-nav">
+  <span>课程开始</span>
+  <a class="home" href="../index.html">课程索引</a>
+  <a class="right" href="0002-kv-cache-block-manager.html">02 KV 与 block →</a>
+</nav>
+
+<header>
+  <p class="kicker">课程 01 · 引擎骨架</p>
+  <h1>90 行，一个推理引擎</h1>
+  <p class="dek">从 <code>LLMEngine.generate()</code> 看清 prefill 与 decode 的分工——以及为什么整个引擎的复杂度都来自这一处分工。</p>
+  <p class="meta">
+    <span>约 45 分钟</span>
+    <span>源码：<code>nanovllm/engine/llm_engine.py</code></span>
+    <span>前置：无</span>
+  </p>
+</header>
+
+<p>面试里问「讲讲 vLLM 的原理」，大部分人从 PagedAttention 开始背。但面试官真正想听的是：<strong>一个请求进来之后，引擎每一轮在干什么，为什么必须这样分。</strong></p>
+
+<p>这一课只做一件事：把 <code>generate()</code> 的主循环拆到你能在白板上默写。nano-vllm 全部代码 1450 行，其中引擎骨架只有 90 行——剩下的 1360 行，都是为了支撑这 90 行。</p>
+
+<div class="key">
+  <span class="label">这一课结束时你会拿到</span>
+  <p>① 能在纸上画出 <code>schedule → forward → postprocess</code> 三段循环；② 能解释 <code>num_tokens</code> 为什么有正负号；③ 能用一句话说清 prefill 和 decode 为什么必须分两条路。</p>
+</div>
+
+<h2><span class="num">1</span>先写一个「笨」的版本</h2>
+
+<p>把大模型当成一个普通函数，最直觉的生成循环长这样：</p>
+
+<pre><code>def generate_naive(model, tokenizer, prompt, max_tokens=64):
+    ids = tokenizer.encode(prompt)
+    for _ in range(max_tokens):
+        logits = model(torch.tensor([ids], device="cuda"))   <span class="cm"># 每次都重算整个前缀</span>
+        next_id = logits[0, -1].argmax().item()
+        ids.append(next_id)
+    return tokenizer.decode(ids)</code></pre>
+
+<p>它没有错，但它有三个致命问题，而且一个比一个贵：</p>
+
+<ol>
+  <li><strong>重复计算。</strong>生成第 <code>t</code> 个 token 时，前面 <code>t</code> 个 token 的 K/V 又算了一遍。整段生成的总计算量是 <code>O(n²)</code>，而不是 KV cache 版本里的 <code>O(n)</code>。</li>
+  <li><strong>一次只服务一个请求。</strong>GPU 的算力单元要凑够一批矩阵乘才吃得饱；batch size = 1 时，大部分时间在等数据搬运。</li>
+  <li><strong>显存不知道该怎么分。</strong>如果给每个请求按最大长度预分配 KV，一条 100 token 的短请求也要占 4096 的坑，碎片和浪费会让并发数掉到个位数。</li>
+</ol>
+
+<p>vLLM 的论文把这三个问题的代价算得很清楚：在同样的延迟水平下，吞吐能提升 2–4 倍[<a href="https://arxiv.org/abs/2309.06180">SOSP'23</a>]。而 nano-vllm 把这个提升压缩成了三个文件。</p>
+
+<h2><span class="num">2</span>引擎只多做三件事</h2>
+
+<p>把「笨版本」的三个问题反过来看，就是一个推理引擎的全部职责：</p>
+
+<table>
+  <thead>
+    <tr><th>要回答的问题</th><th>nano-vllm 的答案</th><th>代码位置</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>这一轮让谁上 GPU？</td>
+      <td>waiting / running 双队列，装不下就抢占</td>
+      <td><code>engine/scheduler.py</code></td>
+    </tr>
+    <tr>
+      <td>算出来的 K/V 存在哪？</td>
+      <td>按 block 分页 + 引用计数 + 前缀哈希</td>
+      <td><code>engine/block_manager.py</code></td>
+    </tr>
+    <tr>
+      <td>多个请求怎么缝进一次前向？</td>
+      <td>变长 batch、<code>slot_mapping</code>、FlashAttention varlen</td>
+      <td><code>engine/model_runner.py</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>至于「模型本身」，在 nano-vllm 里只是 <code>models/qwen3.py</code> 的 216 行——引擎不关心模型结构，它只关心<strong>这个 batch 有几个序列、每个序列多长、KV 该写到哪</strong>。</p>
+
+<h2><span class="num">3</span>打开源码：90 行里的 7 行</h2>
+
+<p><code>llm_engine.py</code> 全部 90 行，真正定义引擎行为的是 <code>step()</code>[<a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3/nanovllm/engine/llm_engine.py#L49-L55">L49–55</a>]：</p>
+
+<pre><code><span class="file">nanovllm/engine/llm_engine.py · step()</span>    def step(self):
+        seqs, is_prefill = self.scheduler.schedule()                       <span class="cm"># ① 调度：谁上 GPU</span>
+        num_tokens = sum(seq.num_scheduled_tokens for seq in seqs) if is_prefill else -len(seqs)
+        token_ids = self.model_runner.call("run", seqs, is_prefill)        <span class="cm"># ② 前向：GPU 干活</span>
+        self.scheduler.postprocess(seqs, token_ids, is_prefill)            <span class="cm"># ③ 记账：写回、判死</span>
+        outputs = [(seq.seq_id, seq.completion_token_ids) for seq in seqs if seq.is_finished]
+        return outputs, num_tokens</code></pre>
+
+<p>外层再套一个 <code>while not self.is_finished():</code>[<a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3/nanovllm/engine/llm_engine.py#L73-L75">L73</a>]，就是完整的引擎：</p>
+
+<div class="loop">
+  <div class="box"><b>① schedule</b><span>挑 seqs，分配 block</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>② run</b><span>拼 batch，跑 forward</span></div>
+  <div class="arrow">→</div>
+  <div class="box"><b>③ postprocess</b><span>采样、append、判结束</span></div>
+</div>
+
+<p>每一轮可以跑 <em>多批</em> 序列，但只跑 <em>一种</em> 模式——要么整轮都是 prefill，要么整轮都是 decode。这就是 <code>is_prefill</code> 这个布尔值的全部含义。</p>
+
+<div class="key">
+  <span class="label">关键洞察</span>
+  <p>引擎不是「把模型跑得更快」，而是<strong>决定每一轮让哪些请求一起跑</strong>。模型的计算量由 token 数决定，引擎能做的是让这些 token 尽量填满 GPU。</p>
+</div>
+
+<h2><span class="num">4</span>那个负号</h2>
+
+<pre><code>num_tokens = sum(seq.num_scheduled_tokens for seq in seqs) if is_prefill else -len(seqs)</code></pre>
+
+<p>这一行看起来像恶作剧。为什么要用负数表示 decode？因为这两种模式下，「这一轮干了多少活」的计量单位根本不同：</p>
+
+<ul>
+  <li><strong>prefill</strong>：一轮里每条序列可能算了几百上千个 token，用 <em>token 总数</em> 来记——正数。</li>
+  <li><strong>decode</strong>：每条序列只前进 1 个 token，真正有意义的数字是<em>同时服务了几条序列</em>，用 <code>-len(seqs)</code> 来记——负数。</li>
+</ul>
+
+<p>负号只是为了让同一个返回值同时携带「量」和「类型」两个信息，好让 <code>generate()</code> 分别统计 prefill 和 decode 的吞吐[<a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3/nanovllm/engine/llm_engine.py#L76-L83">L76–83</a>]。这不是好设计，但它把「两种模式」这件事暴露得特别清楚——你在 vLLM 里会看到同一种区分被拆成了两个独立的调度器。</p>
+
+<h2><span class="num">5</span>为什么一轮只能是一种模式</h2>
+
+<p>prefill 和 decode 的计算特征几乎相反：</p>
+
+<table>
+  <thead><tr><th></th><th>prefill</th><th>decode</th></tr></thead>
+  <tbody>
+    <tr><td>一次吃多少 token</td><td>整段 prompt（几十到几千）</td><td>每序列 1 个</td></tr>
+    <tr><td>主要瓶颈</td><td>算力（大矩阵乘，compute-bound）</td><td>显存带宽（要读完整个 KV cache，memory-bound）</td></tr>
+    <tr><td>KV 写入</td><td>一次写一大片</td><td>每步写 1 个 slot</td></tr>
+    <tr><td>注意力实现</td><td><code>flash_attn_varlen_func</code></td><td><code>flash_attn_with_kvcache</code></td></tr>
+  </tbody>
+</table>
+
+<p>把两者混在一轮里，GPU 既要算大矩阵又要读 KV，两种优化会互相打架。所以 nano-vllm 的选择很直接：<strong>先尽量把 waiting 队列里的 prefill 做完，没有 prefill 了才进入 decode</strong>[<a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3/nanovllm/engine/scheduler.py#L54-L55">scheduler.py L54–55</a>]。</p>
+
+<p>现在算一笔账，你就知道 KV cache 为什么是整个系统的心脏。Qwen3-0.6B 的配置是 28 层、8 个 KV head、head_dim 128、bf16[<a href="https://hf-mirror.com/Qwen/Qwen3-0.6B/raw/main/config.json">config.json</a>]：</p>
+
+<table>
+  <thead><tr><th>量</th><th>算式</th><th>结果</th></tr></thead>
+  <tbody>
+    <tr><td>每个 token 的 KV</td><td>2 × 28 层 × 8 头 × 128 维 × 2 字节</td><td><strong>112 KiB</strong></td></tr>
+    <tr><td>一个 block（256 token）</td><td>112 KiB × 256</td><td><strong>28 MiB</strong></td></tr>
+    <tr><td>一条 4096 token 序列</td><td>112 KiB × 4096</td><td><strong>448 MiB</strong></td></tr>
+    <tr><td>12 GB 卡能装多少（粗算）</td><td>(12×0.9 − 1.2 GB 权重) ÷ 28 MiB</td><td><strong>约 340 个 block</strong></td></tr>
+  </tbody>
+</table>
+
+<p>340 个 block ≈ 8.7 万个 token ≈ 21 条满长度序列。注意 <code>max_num_seqs</code> 默认是 512[<a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3/nanovllm/config.py#L10-L10">config.py L10</a>]——<strong>能排队的请求数和显存能容纳的序列数根本不是一回事</strong>。调度器真正在做的，是在这两者之间做取舍。</p>
+
+<div class="warn">
+  <span class="label">常见误解</span>
+  <p>「batch 越大吞吐越高」只在显存够用时成立。decode 阶段每多一条序列，就要多读一份 KV——超过带宽极限后，加 batch 只会让每条序列变慢，总吞吐不再上升。</p>
+</div>
+
+<h2><span class="num">6</span>练习 A · 白板复述</h2>
+
+<p>合上这页，用 3 分钟在纸上画出：<code>generate()</code> 的循环、三个箭头的名字、以及每个箭头里发生的<em>一件</em>关键事。画完再展开对照。</p>
+
+<details>
+  <summary>展开：参考图与自评标准</summary>
+  <p><strong>及格</strong>：画出 waiting → running → finished 的迁移，标出 schedule / run / postprocess 三个位置。</p>
+  <p><strong>良好</strong>：额外写出 prefill 与 decode 的瓶颈差异（compute-bound vs memory-bound），并说明 KV cache 是 decode 的主导成本。</p>
+  <p><strong>优秀</strong>：能指出「一轮只跑一种模式」是 nano-vllm 的简化，vLLM 用 chunked prefill 把两者混在同一轮里来填满 GPU。</p>
+</details>
+
+<h2><span class="num">7</span>练习 B · 闭卷测验</h2>
+
+<p>五道题，答对四道以上再往下走。答错不要紧——错的那道正好告诉你该回看哪一行。</p>
+
+<div class="quiz" data-quiz="engine-loop"></div>
+
+<h2><span class="num">8</span>练习 C · 代码寻宝</h2>
+
+<p>打开本地 <code>vendor/nano-vllm/</code>，用编辑器跳转到这几行，先自己想，再展开对照。</p>
+
+<details>
+  <summary>1. <code>scheduler.py</code> 的 L48–51：序列从 waiting 搬到 running 的条件是什么？</summary>
+  <p><code>seq.num_cached_tokens + seq.num_scheduled_tokens == seq.num_tokens</code>。左边是「已经算过的 + 这一轮要算的」，等于总长度，说明这段 prompt 的 prefill 到此完成。注意在有 chunked prefill（L42–43 只允许第一条序列分块）时，可能需要多轮才满足。</p>
+</details>
+
+<details>
+  <summary>2. <code>block_manager.py</code> 的 L104：为什么判断新块的条件是 <code>len(seq) % block_size == 1</code>？</summary>
+  <p>decode 这一步要写入的是「最后一个 token」的 KV，它位于 <code>len(seq) - 1</code> 号位置。当 <code>len(seq) % block_size == 1</code> 时，这个位置恰好是某个新 block 的第 0 格，所以要提前分配一个 block。<code>can_append</code> 只检查空闲块够不够，<code>may_append</code> 才真正分配。</p>
+</details>
+
+<details>
+  <summary>3. <code>scheduler.py</code> 的 L89–92：一条序列在两个条件下会结束，分别是什么？</summary>
+  <p>① 采样到 EOS 且没有设置 <code>ignore_eos</code>；② 生成的 token 数达到 <code>max_tokens</code>。结束后立刻 <code>deallocate</code> 归还 block，并从 running 队列移除——这就是 paged 分配最大的好处：<strong>释放是即时且完整的</strong>，不会留下碎片。</p>
+</details>
+
+<details>
+  <summary>4. 附加：为什么 <code>step()</code> 里 <code>postprocess</code> 在 <code>run</code> 之后，而不是在下一轮 <code>schedule</code> 之前？</summary>
+  <p>因为 <code>run</code> 产生的 logits 只在这一轮有效（GPU 上的中间张量马上会被下一轮覆盖），必须立刻采样成 token id 并写回 CPU 侧状态。引擎的状态机（<code>num_cached_tokens</code>、<code>block_table</code>）是 CPU 的真相，GPU 只是执行器。</p>
+</details>
+
+<h2><span class="num">9</span>面试复述卡</h2>
+
+<p>下面这个问题几乎每场推理框架面试都会出现。先用 30 秒讲一遍，再看参考答法。</p>
+
+<p><strong>「一个请求进来之后，vLLM 这类引擎的每一步在做什么？」</strong></p>
+
+<details>
+  <summary>展开：一个可以背的 30 秒结构</summary>
+  <p>「引擎的核心循环只有三步：调度、前向、回写。调度器从 waiting 队列取请求算 prompt（prefill），从 running 队列取请求生成下一个 token（decode）；前向把这一批序列拼成一个变长 batch 一次跑完；回写阶段采样、追加 token、更新 KV 的 block 表，结束的序列立刻释放显存。</p>
+  <p>关键点是 prefill 和 decode 的计算特征相反：prefill 是大矩阵乘、算力受限；decode 每步只算一个 token 却要读完整个 KV cache、带宽受限。所以调度器的大部分复杂度，都是在有限的 KV 显存里决定让谁上、让谁等、以及等不下时抢占谁。」</p>
+</details>
+
+<div class="ask-teacher">
+  <p><strong>随时打断我。</strong> 卡在哪一行、哪个术语、或者想问「vLLM 里这段变成什么样了」，直接在对话里问——我是你的老师，不是播放器。下一课开始前，你可以先问我任何关于这一课的问题。</p>
+</div>
+
+<footer class="lesson-footer">
+  <h3>主源与延伸</h3>
+  <ul>
+    <li><strong>主源（必读）</strong>：<code>vendor/nano-vllm/nanovllm/engine/llm_engine.py</code> 全文 90 行，逐行读完，对照本课第 3 节。<a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3/nanovllm/engine/llm_engine.py">GitHub 永久链接</a></li>
+    <li>为什么这样能快 2–4 倍：<a href="https://arxiv.org/abs/2309.06180">PagedAttention 论文</a>，只读 §1 和 §2。</li>
+    <li>术语速查：<a href="../reference/glossary.html">推理框架术语表</a>（每课都会引用同一份）。</li>
+    <li>下一课：<strong>02 · KV cache 与 block manager</strong>——引用计数、前缀哈希链、以及 <code>slot_mapping</code> 到底把 K/V 写到哪。</li>
+  </ul>
+</footer>
+
+</div>
+<script src="../assets/quiz.js?v=2"></script>
+<script>
+CourseQuiz.mount('[data-quiz="engine-loop"]', {
+  questions: [
+    {
+      q: '`generate()` 的 while 循环里，每一轮最先执行的是：',
+      options: [
+        '调度器挑选本轮序列',
+        '模型执行一次前向计算',
+        '采样器抽取下一个词元',
+        '分词器解码全部输出'
+      ],
+      answer: 0,
+      why: ' `step()` 的第一行就是 `self.scheduler.schedule()`（llm_engine.py L50），它决定这一轮让哪些序列上 GPU。'
+    },
+    {
+      q: '`step()` 返回的 `num_tokens` 是负数，说明这一轮：',
+      options: [
+        '这一轮正在预填充',
+        '这一轮正在加载权重',
+        '这一轮正在解码',
+        '这一轮正在退出循环'
+      ],
+      answer: 2,
+      why: ' decode 每序列只前进 1 个 token，所以用 `-len(seqs)` 记「这一轮服务了几条序列」；正数才表示 prefill 算了多少 token。'
+    },
+    {
+      q: 'nano-vllm 把 prefill 和 decode 分成两条路径，主要因为：',
+      options: [
+        '两者的分词器版本不同',
+        '两者的采样温度不同',
+        '两者的模型权重不同',
+        '两者的计算特征不同'
+      ],
+      answer: 3,
+      why: ' prefill 一次处理整段 prompt，算力受限；decode 每步只有 1 个 token，却要读完整 KV，带宽受限。混在一起两种优化会互相打架。'
+    },
+    {
+      q: '一个序列什么时候从 `waiting` 移到 `running`？',
+      options: [
+        '当它被加入 waiting 队列时',
+        '当它生成第一个 token 之后',
+        '当它的 prefill 全部完成时',
+        '当它的第一个块被分配时'
+      ],
+      answer: 2,
+      why: ' scheduler.py L48–51：当 `num_cached_tokens + num_scheduled_tokens == num_tokens`，说明整段 prompt 已经算完，序列转为 RUNNING。'
+    },
+    {
+      q: '`can_append` 用 `len(seq) % block_size == 1` 判断要新块，是因为：',
+      options: [
+        '第一个 token 总是独占一个块',
+        '最后一个 token 恰好是新块首 token',
+        '块大小必须是 256 的倍数',
+        '解码每步会追加两个 token'
+      ],
+      answer: 1,
+      why: ' decode 写入的是位置 `len(seq) - 1` 的 KV；当 `len % block_size == 1`，这个位置正是新 block 的第 0 格，必须先分配（block_manager.py L104）。'
+    }
+  ]
+});
+</script>
+<script src="../assets/highlight.js?v=2"></script>
+<script src="../assets/lesson-ui.js?v=2"></script>
+</body>
+</html>

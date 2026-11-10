@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>03 · 调度与抢占</title>
+<link rel="stylesheet" href="../assets/course.css?v=2">
+</head>
+<body>
+<div class="page">
+
+<nav class="lesson-nav">
+  <a href="0002-kv-cache-block-manager.html">← 02 KV 与 block</a>
+  <a class="home" href="../index.html">课程索引</a>
+  <a class="right" href="0004-attention-slot-mapping.html">04 Attention 层 →</a>
+</nav>
+
+<header>
+  <p class="kicker">课程 03 · 调度</p>
+  <h1>谁上 GPU，谁在等</h1>
+  <p class="dek"><code>schedule()</code> 只有 50 行，却要同时回答三个问题：预算还剩多少、显存够不够、等不下的序列怎么处理。这一课把 <code>waiting</code> 和 <code>running</code> 两条队列彻底拆开。</p>
+  <p class="meta">
+    <span>约 50 分钟</span>
+    <span>源码：<code>engine/scheduler.py</code>（92 行）</span>
+    <span>前置：02</span>
+  </p>
+</header>
+
+<h2><span class="num">1</span>调度器的合同</h2>
+
+<pre><code>def schedule(self) -&gt; tuple[list[Sequence], bool]:
+    ...
+    if scheduled_seqs:
+        return scheduled_seqs, True     <span class="cm"># 这一轮是 prefill</span>
+    ...
+    assert scheduled_seqs
+    return scheduled_seqs, False        <span class="cm"># 这一轮是 decode</span></code></pre>
+
+<p>它只做一件事：<strong>挑出这一轮要上 GPU 的序列</strong>，并告诉调用方这轮是 prefill 还是 decode。所有策略都藏在两个循环里：先尽力塞 prefill，塞不进去才转 decode。</p>
+
+<div class="key">
+  <span class="label">先记住这个顺序</span>
+  <p>prefill 优先，不是因为它更重要，而是因为它<strong>决定了一条序列能否进入 running</strong>。只要还有能塞下的 prefill，就先把新请求推进来；否则 decode 会一直霸占 GPU，新来的请求永远排不上队。</p>
+</div>
+
+<h2><span class="num">2</span>prefill 循环：三个约束同时收紧</h2>
+
+<pre><code><span class="file">scheduler.py · L29–55</span>while self.waiting and len(scheduled_seqs) &lt; self.max_num_seqs:   <span class="cm"># 约束① 序列数</span>
+    seq = self.waiting[0]
+    remaining = self.max_num_batched_tokens - num_batched_tokens  <span class="cm"># 约束② token 预算</span>
+    if remaining == 0:
+        break
+    if not seq.block_table:
+        num_cached_blocks = self.block_manager.can_allocate(seq)
+        if num_cached_blocks == -1:      <span class="cm"># 约束③ 显存</span>
+            break                        <span class="cm"># 队首都放不下，后面更长的更放不下</span>
+        num_tokens = seq.num_tokens - num_cached_blocks * self.block_size
+    else:
+        num_tokens = seq.num_tokens - seq.num_cached_tokens
+    if remaining &lt; num_tokens and scheduled_seqs:   <span class="cm"># 只允许第一条分块</span>
+        break
+    if not seq.block_table:
+        self.block_manager.allocate(seq, num_cached_blocks)
+    seq.num_scheduled_tokens = min(num_tokens, remaining)
+    num_batched_tokens += seq.num_scheduled_tokens
+    if seq.num_cached_tokens + seq.num_scheduled_tokens == seq.num_tokens:
+        seq.status = SequenceStatus.RUNNING
+        self.waiting.popleft()
+        self.running.append(seq)
+    scheduled_seqs.append(seq)</code></pre>
+
+<p>三个 <code>break</code> 对应三个不同的放弃理由，面试里能分清这三个，就已经超出大多数人：</p>
+
+<table>
+  <thead><tr><th>条件</th><th>含义</th><th>为什么不继续尝试后面的序列</th></tr></thead>
+  <tbody>
+    <tr><td><code>remaining == 0</code></td><td>token 预算用完</td><td>预算只会更少，后面的也塞不下</td></tr>
+    <tr><td><code>can_allocate == -1</code></td><td>显存不够</td><td>队列按长度递增假设，后面的只会更长</td></tr>
+    <tr><td><code>remaining &lt; num_tokens</code> 且已有序列</td><td>放不下完整 prompt</td><td>只有第一条允许被切成多轮（chunked prefill）</td></tr>
+  </tbody>
+</table>
+
+<div class="warn">
+  <span class="label">这里有个简化</span>
+  <p>「队首放不下就 break」隐含假设 waiting 队列大致按长度有序。nano-vllm 没做排序，所以这是个<strong>有意的简化</strong>——vLLM 的调度器会做更细的扫描与优先级判断。面试被问到「如果队首很长、后面都是短请求怎么办」，正确答案是「应该跳过队首继续扫」，这也是 vLLM 与教学实现的差别之一。</p>
+</div>
+
+<h2><span class="num">3</span>chunked prefill：只给第一条</h2>
+
+<p><code>if remaining &lt; num_tokens and scheduled_seqs: break</code> 这行的意思是：</p>
+
+<ul>
+  <li>如果这是本轮<strong>第一条</strong>序列（<code>scheduled_seqs</code> 为空），即使预算不够算完整个 prompt，也切一块先算——这就是 chunked prefill。</li>
+  <li>如果本轮已经排了别的序列，就不再接受「需要切块」的请求，宁可留到下一轮。</li>
+</ul>
+
+<p>为什么限制得这么死？因为切块会让一条序列横跨多轮：它的 <code>num_cached_tokens</code> 在一轮轮增长，期间不能采样、不能结束。如果允许多条序列同时分块，<code>is_prefill</code> 这个布尔值就不够用了——你没法用一个全局标志描述「一半序列在补 prefill、一半在 decode」。<strong>nano-vllm 用「一轮一种模式」换来了代码的极简，代价是调度自由度。</strong></p>
+
+<h2><span class="num">4</span>decode 循环：显存不够就抢</h2>
+
+<pre><code><span class="file">scheduler.py · L57–73</span>while self.running and len(scheduled_seqs) &lt; self.max_num_seqs:
+    seq = self.running.popleft()
+    while not self.block_manager.can_append(seq):
+        if self.running:                       <span class="cm"># 还有别的序列可以牺牲</span>
+            self.preempt(self.running.pop())
+        else:                                  <span class="cm"># 只剩自己了</span>
+            self.preempt(seq)
+            break
+    else:                                      <span class="cm"># while 正常结束（没被 break）</span>
+        seq.num_scheduled_tokens = 1
+        seq.is_prefill = False
+        self.block_manager.may_append(seq)
+        scheduled_seqs.append(seq)
+assert scheduled_seqs
+self.running.extendleft(reversed(scheduled_seqs))</code></pre>
+
+<p>这段代码里有三个值得单独讲的点。</p>
+
+<h3>① 抢谁：<code>running.pop()</code></h3>
+
+<p><code>pop()</code> 取的是队列<strong>尾部</strong>，也就是最近才进入 running 的序列。它的 KV 最短、重算成本最低——抢占是一个经济学问题，不是公平性问题。</p>
+
+<h3>② 抢占做了什么</h3>
+
+<pre><code><span class="file">scheduler.py · L75–79</span>def preempt(self, seq):
+    seq.status = SequenceStatus.WAITING
+    seq.is_prefill = True
+    self.block_manager.deallocate(seq)     <span class="cm"># 块全部归还，num_cached_tokens 清零</span>
+    self.waiting.appendleft(seq)           <span class="cm"># 插到队首，下一轮优先重算</span></code></pre>
+
+<p>注意 <code>is_prefill = True</code>：被抢占的序列要<strong>重新走一遍 prefill</strong>，因为它已经生成的 KV 全没了。<code>num_cached_tokens</code> 在 <code>deallocate</code> 里被清零，所以下一轮的 <code>num_tokens</code> 会重新等于整条序列长度——除非前缀缓存还能命中一部分。</p>
+
+<div class="key">
+  <span class="label">一句话记住</span>
+  <p>抢占不是「暂停」，是「丢弃后重算」。所以它只在显存真的不够时发生，而且是<strong>后进先出</strong>——最新的请求牺牲最少。</p>
+</div>
+
+<h3>③ 那个 <code>while ... else</code></h3>
+
+<p>Python 的 <code>while/else</code> 在这里不是炫技：<code>else</code> 只在循环<strong>没有被 break</strong> 时执行。也就是说，只有当 <code>can_append</code> 最终返回真（腾出了空间），这条序列才会被排进本轮；如果它是被自己抢占掉的那一条，<code>break</code> 让 <code>else</code> 跳过，本轮就不跑它。</p>
+
+<div class="aside">
+  <span class="label">面试可能追问</span>
+  <p>「为什么不是抢占自己？」——因为抢占自己等于本轮白跑，而且它已经被移出 running 插到 waiting 队首了。只有<strong>别无选择</strong>（running 里只剩它）时才牺牲它自己。</p>
+</div>
+
+<h2><span class="num">5</span>postprocess：真正的记账处</h2>
+
+<pre><code><span class="file">scheduler.py · L81–92</span>def postprocess(self, seqs, token_ids, is_prefill):
+    for seq, token_id in zip(seqs, token_ids):
+        self.block_manager.hash_blocks(seq)          <span class="cm"># 满块登记进前缀缓存</span>
+        seq.num_cached_tokens += seq.num_scheduled_tokens
+        seq.num_scheduled_tokens = 0
+        if is_prefill and seq.num_cached_tokens &lt; seq.num_tokens:
+            continue                                  <span class="cm"># 分块没算完：不加 token、不判死</span>
+        seq.append_token(token_id)
+        if (not seq.ignore_eos and token_id == self.eos) or seq.num_completion_tokens == seq.max_tokens:
+            seq.status = SequenceStatus.FINISHED
+            self.block_manager.deallocate(seq)
+            self.running.remove(seq)</code></pre>
+
+<p>这里有本课最隐蔽的一处浪费：<strong>分块 prefill 时采样出的 token 被直接丢掉了</strong>。<code>model_runner</code> 每轮都会对所有序列采样，但 <code>continue</code> 让这个 token 永远不会被 append。下一轮算完剩下的 prompt，还会再采一次。</p>
+
+<p>这是教学实现的取舍：与其在 <code>run()</code> 里判断「哪些序列还没算完、不要采样」，不如统一采样再丢弃。正确性没问题，浪费一次采样而已——面试时能主动说出这一点，是很强的信号。</p>
+
+<h2><span class="num">6</span>三个旋钮</h2>
+
+<table>
+  <thead><tr><th>参数</th><th>默认</th><th>调大之后</th><th>调小之后</th></tr></thead>
+  <tbody>
+    <tr><td><code>max_num_seqs</code></td><td>512</td><td>并发上限更高，但每序列更慢</td><td>延迟更稳，吞吐下降</td></tr>
+    <tr><td><code>max_num_batched_tokens</code></td><td>16384</td><td>一轮能吃更长 prompt，TTFT 波动更大</td><td>长 prompt 被切更多块，首 token 更慢</td></tr>
+    <tr><td><code>gpu_memory_utilization</code></td><td>0.9</td><td>KV 块更多，能扛更多并发</td><td>更安全，但并发受限</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">7</span>练习 A · 手算一次抢占</h2>
+
+<p><code>block_size = 4</code>，空闲块 2 个。running 里有 A（长度 8）、B（长度 5），waiting 里 C（长度 20）。这一轮要跑 decode。请写出 <code>schedule()</code> 的过程。</p>
+
+<details>
+  <summary>展开：答案</summary>
+  <p>A 先 <code>popleft</code>。A 长度 8，<code>8 % 4 == 0</code>，追加一个 token 需要新块吗？<code>len % block_size == 0 ≠ 1</code>，不需要新块——<code>can_append</code> 返回真，A 进本轮。</p>
+  <p>B 长度 5，<code>5 % 4 == 1</code>，追加会进入新块，需要 1 个空闲块——有 2 个，直接通过，B 进本轮。</p>
+  <p>本轮 decode 两条序列。注意 <strong>waiting 里的 C 根本不会被考虑</strong>：只要 prefill 循环一个都没排上，就会走到 decode；而 C 之所以没排上，是因为它需要 5 个新块，空闲只有 2 个，<code>can_allocate</code> 返回 -1 直接 break。</p>
+</details>
+
+<h2><span class="num">8</span>练习 B · 闭卷测验</h2>
+
+<div class="quiz" data-quiz="scheduler"></div>
+
+<h2><span class="num">9</span>练习 C · 代码寻宝</h2>
+
+<details>
+  <summary>1. 如果删掉 <code>assert scheduled_seqs</code>，什么情况下 decode 会返回空列表？</summary>
+  <p>当 running 里唯一的序列也被抢占时（<code>else</code> 分支的 <code>preempt(seq)</code>）。此时本轮没有可跑的序列——理论上应该回到调度循环重新尝试 prefill。这个 assert 是在声明「这种情形不应发生」，因为抢占自己时自己也进了 waiting，下一轮会走 prefill 路径。</p>
+</details>
+
+<details>
+  <summary>2. <code>running.extendleft(reversed(scheduled_seqs))</code> 为什么不直接 <code>running.extend(...)</code>？</summary>
+  <p><code>popleft</code> 已经把序列从头取走了，但要保持它们在 running 里的<strong>原有顺序</strong>。倒序 + <code>extendleft</code> 等价于按原顺序插到队首，这样下一轮 <code>popleft</code> 拿到的还是最早的序列——FIFO 语义。</p>
+</details>
+
+<details>
+  <summary>3. 被抢占的序列为什么插到 <code>waiting</code> 的队首，而不是队尾？</summary>
+  <p>它本来就在运行，只是缺显存。插队首能让它尽快恢复，避免饥饿；同时也符合「它已经等得最久」的直觉。代价是可能挤掉新来的请求——这正是调度策略要权衡的。</p>
+</details>
+
+<h2><span class="num">10</span>面试复述卡</h2>
+
+<p><strong>「continuous batching 和静态 batching 差在哪？」</strong></p>
+
+<details>
+  <summary>展开：30 秒版本</summary>
+  <p>「静态 batching 是把一批请求打包，等整批全部生成完才换下一批——快的请求要等慢的，新请求也进不来。continuous batching 是每一轮重新组 batch：谁做完了立刻退场释放块，新请求立刻补位。代价是每一步都要重新决定 batch 组成，还要处理显存不够时的抢占。nano-vllm 的 <code>schedule()</code> 就是这个决策的全部代码。」</p>
+</details>
+
+<div class="ask-teacher">
+  <p><strong>想更进一步就问</strong>：「抢占有没有不丢 KV 的做法？」——有，swap 到 CPU 显存，vLLM 支持；我们会在 vLLM 那几课里对照。</p>
+</div>
+
+<footer class="lesson-footer">
+  <h3>主源与延伸</h3>
+  <ul>
+    <li><strong>主源（必读）</strong>：<code>vendor/nano-vllm/nanovllm/engine/scheduler.py</code> 全文 92 行。<a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3/nanovllm/engine/scheduler.py">GitHub 永久链接</a></li>
+    <li>论文：Orca（OSDI'22）——iteration-level scheduling 的出处。</li>
+    <li>术语：<a href="../reference/glossary.html#schedule">调度与批处理</a>。</li>
+    <li>下一课：<strong>04 · Attention 层</strong>——<code>slot_mapping</code> 把 KV 写到哪，FlashAttention 的两种调用形态。</li>
+  </ul>
+</footer>
+
+</div>
+<script src="../assets/quiz.js?v=2"></script>
+<script>
+CourseQuiz.mount('[data-quiz="scheduler"]', {
+  questions: [
+    {
+      q: '`schedule()` 返回的 `is_prefill` 什么时候为真？',
+      options: [
+        '只要 waiting 队列非空就为真',
+        '只要本轮排上了序列就为真',
+        '本轮至少排上了一条 prefill 序列',
+        '只要 running 队列为空就为真'
+      ],
+      answer: 2,
+      why: ' 代码在 prefill 循环结束后直接 `return scheduled_seqs, True`——只要能排出 prefill，这一轮就整轮做 prefill，不会混合 decode。'
+    },
+    {
+      q: 'decode 阶段显存不够时，`preempt` 优先抢占哪条序列？',
+      options: [
+        'running 队列里最新的那条',
+        'running 队列里最老的那条',
+        'waiting 队列里最长的那条',
+        '当前正在处理的那一条'
+      ],
+      answer: 0,
+      why: ' `self.running.pop()` 取队尾，也就是最近加入的序列；它的 KV 最短，重算代价最小。'
+    },
+    {
+      q: 'chunked prefill 在 nano-vllm 里只对第一条序列开放，直接后果是：',
+      options: [
+        '长 prompt 可能横跨多轮才完成',
+        '短请求永远不会被调度',
+        'decode 阶段无法再发生抢占',
+        '前缀缓存会完全失效'
+      ],
+      answer: 0,
+      why: ' 分块后 `num_cached_tokens` 逐轮增长，直到等于 `num_tokens` 才算 prefill 完成；这期间不采样、不判结束。'
+    },
+    {
+      q: '`postprocess` 里 `if is_prefill and ...: continue` 的作用是：',
+      options: [
+        '跳过采样，直接进入下一轮',
+        '丢弃 token，等待分块算完',
+        '把序列重新放回 waiting',
+        '提前释放这个序列的块'
+      ],
+      answer: 1,
+      why: ' 分块 prefill 未完成时，本轮采样出的 token 没有意义；`continue` 让它不进 token 列表，等下一轮算完剩余 prompt 再采。'
+    },
+    {
+      q: '`while ... else` 在 decode 循环里的作用是：',
+      options: [
+        '循环正常结束才调度该序列',
+        '循环被 break 时调度该序列',
+        '异常时回滚已分配的块',
+        '无条件执行一次调度'
+      ],
+      answer: 0,
+      why: ' `else` 只在 while 没有被 break 时执行；被自己抢占的那条序列会 break，于是跳过本轮调度。'
+    }
+  ]
+});
+</script>
+<script src="../assets/highlight.js?v=2"></script>
+<script src="../assets/lesson-ui.js?v=2"></script>
+</body>
+</html>

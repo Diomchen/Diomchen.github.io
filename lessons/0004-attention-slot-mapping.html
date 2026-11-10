@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04 · Attention 层与采样</title>
+<link rel="stylesheet" href="../assets/course.css?v=2">
+<link rel="stylesheet" href="../assets/deep-dive.css"><link rel="stylesheet" href="../assets/dimensions.css"></head>
+<body>
+<div class="page">
+
+<nav class="lesson-nav">
+  <a href="0003-scheduler-preemption.html">← 03 调度与抢占</a>
+  <a class="home" href="../index.html">课程索引</a>
+  <a class="right" href="0005-tensor-parallel.html">05 张量并行 →</a>
+</nav>
+
+<header>
+  <p class="kicker">课程 04 · 计算内核</p>
+  <h1>KV 到底写到了哪一格</h1>
+  <p class="dek">这一课把 <code>slot_mapping</code> 这个 int32 数组追到底：谁构造它、谁消费它、为什么 prefill 和 decode 的 FlashAttention 调用长得完全不一样。</p>
+  <p class="meta">
+    <span>约 60 分钟</span>
+    <span>源码：<code>layers/attention.py</code> · <code>model_runner.py</code> · <code>layers/sampler.py</code></span>
+    <span>前置：02、03</span>
+  </p>
+</header><!-- DIMENSION-DETAIL-START --><section class="dimension-inline"><h2>把维度变化拆到每一步</h2><ol><li>QKᵀ中的转置只交换最后两根轴，沿d求和。</li><li>将逻辑矩阵与真实backend布局分开读，再追踪slot_mapping。</li></ol><figure class="dimension-figure"><div class="diagram-scroll" tabindex="0" role="region" aria-label="QKᵀ 与 AV：保留轴和收缩轴，窄屏可横向滚动"><img src="../assets/diagrams/dim-attention.svg" alt="QKᵀ 与 AV：保留轴和收缩轴。完整展示一个 head 的 Q、K转置、分数、因果softmax、V和输出，区分第一次沿d求和和第二次沿Tk求和，给出可复算数值。" loading="lazy"></div><figcaption>完整展示一个 head 的 Q、K转置、分数、因果softmax、V和输出，区分第一次沿d求和和第二次沿Tk求和，给出可复算数值。<a href="../assets/diagrams/dim-attention.svg" target="_blank" rel="noopener">打开原图放大 ↗</a></figcaption></figure><p><a href="../reference/dimension-walkthrough.html#attention"><strong>打开元素级图解：矩阵、轴、索引与可点击反例 →</strong></a></p></section><!-- DIMENSION-DETAIL-END -->
+
+<h2><span class="num">1</span>一次前向需要的五样东西</h2>
+
+<p>模型本身不关心调度。它只问：<strong>这次要算哪些 token、它们在序列里的位置是什么、KV 写到哪、历史 KV 去哪读</strong>。<code>prepare_prefill()</code>[<a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3/nanovllm/engine/model_runner.py#L129-L170">L129–170</a>] 把调度器的状态翻译成这五样：</p>
+
+<table>
+  <thead><tr><th>张量</th><th>形状 / 类型</th><th>作用</th></tr></thead>
+  <tbody>
+    <tr><td><code>input_ids</code></td><td>[总 token 数] int64</td><td>把所有序列的 token 首尾相接压平</td></tr>
+    <tr><td><code>positions</code></td><td>[总 token 数] int64</td><td>每个 token 的绝对位置，喂给 RoPE</td></tr>
+    <tr><td><code>cu_seqlens_q / k</code></td><td>[bs+1] int32</td><td>前缀和，标记每条序列在压平数组里的区间</td></tr>
+    <tr><td><code>slot_mapping</code></td><td>[总 token 数] int32</td><td><strong>本课主角</strong>：每个 token 的 KV 写到哪个物理槽</td></tr>
+    <tr><td><code>block_tables</code></td><td>[bs, 最大块数] int32</td><td>每条序列的块表，padding 用 -1</td></tr>
+  </tbody>
+</table>
+
+<p><code>cu_seqlens</code> 是变长 batch 的通用表示法：序列 i 的 token 落在 <code>[cu_seqlens[i], cu_seqlens[i+1])</code>。这样一次前向就能处理长度各异的序列，不需要 padding。</p>
+
+<h2><span class="num">2</span>slot_mapping 是怎么算出来的</h2>
+
+<pre><code><span class="file">model_runner.py · L151–161</span>start_block = start // self.block_size
+end_block = (end + self.block_size - 1) // self.block_size
+for i in range(start_block, end_block):
+    slot_start = seq.block_table[i] * self.block_size
+    if i == start_block:
+        slot_start += start % self.block_size      <span class="cm"># 第一块可能从中间开始</span>
+    if i != end_block - 1:
+        slot_end = seq.block_table[i] * self.block_size + self.block_size
+    else:
+        slot_end = seq.block_table[i] * self.block_size + end - i * self.block_size
+    slot_mapping.extend(range(slot_start, slot_end))</code></pre>
+
+<p>KV cache 在显存里是一个扁平的大张量：</p>
+
+<pre><code>self.kv_cache = torch.empty(2, num_layers, num_blocks, block_size, num_kv_heads, head_dim)</code></pre>
+
+<p>所以「第 <code>b</code> 个块的第 <code>j</code> 格」对应的槽号就是 <code>b * block_size + j</code>。slot_mapping 就是把每个待写入的 token 映射到这个一维槽号——<strong>它是一条序列的块表在时间维度上的展开</strong>。</p>
+
+<div class="key">
+  <span class="label">一句话</span>
+  <p>block_table 回答「这条序列的块在哪」，slot_mapping 回答「<strong>这批 token</strong> 的 KV 该写进哪个槽」。前者是静态映射，后者是这一次前向的动态展开。</p>
+</div>
+
+<h2><span class="num">3</span>写 KV：一个 30 行的 Triton kernel</h2>
+
+<pre><code><span class="file">layers/attention.py · L10–30</span>@triton.jit
+def store_kvcache_kernel(key_ptr, key_stride, value_ptr, value_stride,
+                         k_cache_ptr, v_cache_ptr, slot_mapping_ptr, D: tl.constexpr):
+    idx = tl.program_id(0)                 <span class="cm"># 第 idx 个 token</span>
+    slot = tl.load(slot_mapping_ptr + idx)
+    if slot == -1: return                  <span class="cm"># padding 槽，跳过</span>
+    key_offsets = idx * key_stride + tl.arange(0, D)
+    key = tl.load(key_ptr + key_offsets)
+    value = tl.load(value_ptr + value_offsets)
+    cache_offsets = slot * D + tl.arange(0, D)
+    tl.store(k_cache_ptr + cache_offsets, key)
+    tl.store(v_cache_ptr + cache_offsets, value)</code></pre>
+
+<p>一个 program 处理一个 token，每个 program 内部并行搬运 <code>D = num_heads * head_dim</code> 个数。为什么值得写 Triton？因为这是<strong>纯搬运</strong>：PyTorch 的索引赋值 <code>k_cache[slots] = k</code> 会触发一次 gather/scatter 的算子调度，而这里合并成一次 kernel，且没有中间张量。</p>
+
+<h2><span class="num">4</span>两次 FlashAttention，两种形状</h2>
+
+<pre><code><span class="file">layers/attention.py · L59–75</span>def forward(self, q, k, v):
+    context = get_context()
+    if k_cache.numel() and v_cache.numel():
+        store_kvcache(k, v, k_cache, v_cache, context.slot_mapping)   <span class="cm"># 先写</span>
+    if context.is_prefill:
+        if context.block_tables is not None:      <span class="cm"># 前缀缓存命中</span>
+            k, v = k_cache, v_cache               <span class="cm"># 读整块 paged cache</span>
+        o = flash_attn_varlen_func(q, k, v,
+                max_seqlen_q=context.max_seqlen_q, cu_seqlens_q=context.cu_seqlens_q,
+                max_seqlen_k=context.max_seqlen_k, cu_seqlens_k=context.cu_seqlens_k,
+                softmax_scale=self.scale, causal=True, block_table=context.block_tables)
+    else:
+        o = flash_attn_with_kvcache(q.unsqueeze(1), k_cache, v_cache,
+                cache_seqlens=context.context_lens, block_table=context.block_tables,
+                softmax_scale=self.scale, causal=True)</code></pre>
+
+<p>三个关键差异：</p>
+
+<ol>
+  <li><strong>prefill 用 <code>varlen</code></strong>：一次算 N 个 query，用 <code>cu_seqlens</code> 描述变长 batch，Q 和 K 是同一次前向里算出来的。</li>
+  <li><strong>decode 用 <code>with_kvcache</code></strong>：Q 只有 1 个 token（所以要 <code>unsqueeze(1)</code> 变成 <code>[bs, 1, heads, dim]</code>），K/V 全部从 cache 读。</li>
+  <li><strong>前缀缓存命中时 prefill 也读 cache</strong>：<code>k, v = k_cache, v_cache</code> 把「这次算的 K/V」换成「整块 cache」，再靠 <code>block_table</code> 让 kernel 只读有效部分——那些已经算过的前缀就不必重算了。</li>
+</ol>
+
+<div class="warn">
+  <span class="label">注意这个顺序</span>
+  <p>先 <code>store_kvcache</code> 写，再调注意力。所以 <code>with_kvcache</code> 读到的是<strong>包含本 token</strong> 的完整历史——decode 的第 t 步能看见位置 t 的自己，causal mask 保证它不会看见未来。</p>
+</div>
+
+<h2><span class="num">5</span>为什么 prefill 只算最后一个 token 的 logits</h2>
+
+<pre><code><span class="file">layers/embed_head.py · L56–66</span>def forward(self, x):
+    context = get_context()
+    if context.is_prefill:
+        last_indices = context.cu_seqlens_q[1:] - 1     <span class="cm"># 每条序列的最后一个位置</span>
+        x = x[last_indices].contiguous()
+    logits = F.linear(x, self.weight)
+    ...</code></pre>
+
+<p>因果注意力下，位置 i 的隐藏状态只依赖 <code>[0, i]</code>。生成第一个新 token 只需要<strong>整段 prompt 的最后一个位置</strong>的输出。如果对 4096 个位置都算 <code>vocab_size</code> 维的 logits，等于把 15 万 × 4096 的矩阵乘白做一遍——在 0.6B 模型上这只是浪费，在 100B 模型上就是灾难。</p>
+
+<p>这也是为什么 <code>ParallelLMHead</code> 在 prefill 时先 <code>gather</code> 再取：每个 rank 只持有词表的一部分，最后拼起来得到完整 logits。</p>
+
+<h2><span class="num">6</span>采样：一次「指数竞赛」</h2>
+
+<pre><code><span class="file">layers/sampler.py · L7–12</span>@torch.compile
+def forward(self, logits, temperatures):
+    logits = logits.float().div_(temperatures.unsqueeze(dim=1))
+    probs = torch.softmax(logits, dim=-1)
+    sample_tokens = probs.div_(torch.empty_like(probs).exponential_(1).clamp_min_(1e-10)).argmax(dim=-1)</code></pre>
+
+<p>看起来像技巧，其实是一个精确的数学等价：</p>
+
+<blockquote><p>若 <code>E_i ~ Exp(1)</code> 独立同分布，则 <code>argmax_i (p_i / E_i)</code> 的分布恰好是 <code>Multinomial(p)</code>。</p></blockquote>
+
+<p>这叫 <strong>exponential race</strong>（也叫 Gumbel-max 的变体）：把每个候选的「等待时间」定义为 <code>E_i / p_i</code>，谁先到就是谁。<code>p_i</code> 越大，等待时间越短，被选中的概率越大——而且严格等于 <code>p_i</code>。</p>
+
+<p>为什么不用 <code>torch.multinomial</code>？两个原因：<code>multinomial</code> 在 CUDA 上不保证与 <code>torch.compile</code> 兼容的确定性实现；而这种纯张量运算可以整体编译进一张图，省掉一次 kernel launch 和一个随机数生成器调用。</p>
+
+<div class="aside">
+  <span class="label">顺带一提</span>
+  <p><code>@torch.compile</code> 只加在采样这一步，因为它 shape 固定（<code>[bs, vocab]</code>）、逻辑简单，是最安全的编译目标。整模型编译是 vLLM 的路线，风险大得多。</p>
+</div>
+
+<h2><span class="num">7</span>练习 A · 手算 slot_mapping</h2>
+
+<p><code>block_size = 4</code>。序列块表 <code>[7, 9]</code>，已缓存 0 个 token，本轮要算 6 个 token（整段 prompt）。写出 slot_mapping。</p>
+
+<details>
+  <summary>展开：答案</summary>
+  <p><code>start = 0, end = 6</code>。第 0 块（物理块 7）覆盖 token 0–3 → 槽 <code>7*4+0 … 7*4+3 = 28,29,30,31</code>；第 1 块（物理块 9）覆盖 token 4–5 → 槽 <code>9*4+0, 9*4+1 = 36,37</code>。</p>
+  <p>结果：<code>[28,29,30,31,36,37]</code>。注意物理上不连续——这正是分页的意义。</p>
+  <p>如果这轮是 chunked prefill 的第二块（已缓存 4 个 token，本轮算 2 个），则 <code>start=4, end=6</code>，<code>start_block=1</code>，<code>start % block_size = 0</code>，结果同样是 <code>[36,37]</code>。</p>
+</details>
+
+<h2><span class="num">8</span>练习 B · 闭卷测验</h2>
+
+<div class="quiz" data-quiz="attention"></div>
+
+<h2><span class="num">9</span>练习 C · 代码寻宝</h2>
+
+<details>
+  <summary>1. <code>prepare_decode</code> 的 slot_mapping 为什么只有一个元素？</summary>
+  <p>decode 每序列只写 1 个 token 的 KV，所以每条序列对应一个槽：<code>block_table[-1] * block_size + last_block_num_tokens - 1</code>（model_runner L181）。<code>last_block_num_tokens</code> 是最后一块里已有的 token 数，减 1 得到这个 token 的 0-based 槽内偏移。</p>
+</details>
+
+<details>
+  <summary>2. 如果 <code>block_size</code> 和 FlashAttention 的 block 粒度不一致，会发生什么？</summary>
+  <p>FlashAttention 的 <code>block_table</code> 参数会按它自己的粒度去索引 KV cache。如果两者对不上，读到的是错位的 K/V——不会报错，只会默默输出胡话。这就是 config.py 里 <code>assert self.kvcache_block_size % 256 == 0</code> 存在的原因。</p>
+</details>
+
+<details>
+  <summary>3. 为什么采样前要 <code>logits.float()</code>？</summary>
+  <p>logits 可能是 bf16，直接除以 temperature 会损失精度，softmax 在低精度下更容易溢出或产生 0 概率。转成 fp32 再算，代价很小（只在最后一步做）。</p>
+</details>
+
+<h2><span class="num">10</span>面试复述卡</h2>
+
+<p><strong>「PagedAttention 的 kernel 怎么知道 KV 在哪？」</strong></p>
+
+<details>
+  <summary>展开：30 秒版本</summary>
+  <p>「推理时 KV 存在一个大张量里，按块切分、物理上不连续。注意力 kernel 拿到的是 block_table——每条序列的逻辑块到物理块映射，加上这次的 slot_mapping——每个待写 token 到物理槽的一维索引。写入时 Triton kernel 按 slot 逐 token 搬运；读取时 FlashAttention 用 block_table 做间接寻址，所以它能在分页的显存上直接算注意力，不需要先拼成连续内存。」</p>
+</details>
+
+<div class="ask-teacher">
+  <p><strong>想深挖就问</strong>：「FlashAttention 内部怎么处理 block_table？」——那是 kernel 细节，我会给你论文对应章节，不会要求你手写。</p>
+</div>
+
+<footer class="lesson-footer">
+  <h3>主源与延伸</h3>
+  <ul>
+    <li><strong>主源（必读）</strong>：<code>layers/attention.py</code> 全文 75 行 + <code>model_runner.py</code> 的准备工作。</li>
+    <li>论文：FlashAttention（IO-aware 的分块思路）。</li>
+    <li>术语：<a href="../reference/glossary.html#memory">Slot mapping</a>。</li>
+    <li>下一课：<strong>05 · 张量并行</strong>——两张卡怎么切权重、怎么同步、怎么传指令。</li>
+  </ul>
+</footer>
+
+</div>
+<script src="../assets/quiz.js?v=2"></script>
+<script>
+CourseQuiz.mount('[data-quiz="attention"]', {
+  questions: [
+    {
+      q: '`slot_mapping` 里的每个数字表示：',
+      options: [
+        'token 在序列里的位置',
+        'KV 缓存中的物理槽号',
+        '逻辑块到物理块的映射',
+        '这条序列占用的块数量'
+      ],
+      answer: 1,
+      why: ' 它是 `block_table[i] * block_size + 偏移` 的展开，直接指向 KV cache 扁平张量里的一行。'
+    },
+    {
+      q: 'prefill 命中前缀缓存时，传给 FlashAttention 的 K/V 是：',
+      options: [
+        '本次前向刚算出的 K/V',
+        '整块 KV cache 张量',
+        '空张量，靠 block_table 取',
+        '解码阶段缓存下来的 K/V'
+      ],
+      answer: 1,
+      why: ' `k, v = k_cache, v_cache`，再配合 `block_table` 让 kernel 只读有效部分，从而跳过已缓存前缀的计算。'
+    },
+    {
+      q: 'decode 时 `q.unsqueeze(1)` 的作用是：',
+      options: [
+        '把 batch 维扩成序列维',
+        '补齐 head 维度',
+        '把 1 个 token 变成长度 1 的序列',
+        '让 q 和 k_cache 精度一致'
+      ],
+      answer: 2,
+      why: ' `flash_attn_with_kvcache` 期望 q 的形状是 `[batch, seqlen, heads, dim]`；decode 的 seqlen 恒为 1。'
+    },
+    {
+      q: '采样时用 `probs / Exp(1)` 再取 argmax，等价于：',
+      options: [
+        '按概率做多项式采样',
+        '贪心取概率最大的 token',
+        '按温度做截断采样',
+        '均匀随机选一个 token'
+      ],
+      answer: 0,
+      why: ' 这是 exponential race：每个候选的等待时间 `E_i / p_i` 谁最小谁胜出，概率恰好等于 `p_i`。'
+    },
+    {
+      q: 'prefill 只对每条序列的最后一个位置算 logits，是因为：',
+      options: [
+        '前面的位置不需要写 KV',
+        '因果注意力下只需最后一位置',
+        '这样可以节省 KV 显存',
+        '分词器只接受最后一个 token'
+      ],
+      answer: 1,
+      why: ' 因果 mask 保证位置 i 只依赖 `[0, i]`，所以生成下一个 token 只需要整段 prompt 最后一位的隐藏状态。'
+    }
+  ]
+});
+</script>
+<script src="../assets/highlight.js?v=2"></script>
+<script src="../assets/lesson-ui.js?v=2"></script>
+</body>
+</html>

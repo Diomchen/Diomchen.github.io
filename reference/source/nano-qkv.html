@@ -1,0 +1,78 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>nano-qkv</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>nano-qkv</h1><p class="source-note">nano-vllm/nanovllm/models/qwen3.py · bb823b3 · L14–91 · <a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/models/qwen3.py#L14-L91">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>nano-vllm · MIT</strong><p>Copyright (c) 2025 Xingkai Yu。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/nano-vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L14"><a class="line-no" href="#L14">14</a>class Qwen3Attention(nn.Module):</span>
+<span class="source-line" id="L15"><a class="line-no" href="#L15">15</a></span>
+<span class="source-line" id="L16"><a class="line-no" href="#L16">16</a>    def __init__(</span>
+<span class="source-line" id="L17"><a class="line-no" href="#L17">17</a>        self,</span>
+<span class="source-line" id="L18"><a class="line-no" href="#L18">18</a>        hidden_size: int,</span>
+<span class="source-line" id="L19"><a class="line-no" href="#L19">19</a>        num_heads: int,</span>
+<span class="source-line" id="L20"><a class="line-no" href="#L20">20</a>        num_kv_heads: int,</span>
+<span class="source-line" id="L21"><a class="line-no" href="#L21">21</a>        max_position: int = 4096 * 32,</span>
+<span class="source-line" id="L22"><a class="line-no" href="#L22">22</a>        head_dim: int | None = None,</span>
+<span class="source-line" id="L23"><a class="line-no" href="#L23">23</a>        rms_norm_eps: float = 1e-06,</span>
+<span class="source-line" id="L24"><a class="line-no" href="#L24">24</a>        qkv_bias: bool = False,</span>
+<span class="source-line" id="L25"><a class="line-no" href="#L25">25</a>        rope_theta: float = 10000,</span>
+<span class="source-line" id="L26"><a class="line-no" href="#L26">26</a>        rope_scaling: dict | None = None,</span>
+<span class="source-line" id="L27"><a class="line-no" href="#L27">27</a>    ) -&gt; None:</span>
+<span class="source-line" id="L28"><a class="line-no" href="#L28">28</a>        super().__init__()</span>
+<span class="source-line" id="L29"><a class="line-no" href="#L29">29</a>        tp_size = dist.get_world_size()</span>
+<span class="source-line" id="L30"><a class="line-no" href="#L30">30</a>        self.total_num_heads = num_heads</span>
+<span class="source-line" id="L31"><a class="line-no" href="#L31">31</a>        assert self.total_num_heads % tp_size == 0</span>
+<span class="source-line" id="L32"><a class="line-no" href="#L32">32</a>        self.num_heads = self.total_num_heads // tp_size</span>
+<span class="source-line" id="L33"><a class="line-no" href="#L33">33</a>        self.total_num_kv_heads = num_kv_heads</span>
+<span class="source-line" id="L34"><a class="line-no" href="#L34">34</a>        assert self.total_num_kv_heads % tp_size == 0</span>
+<span class="source-line" id="L35"><a class="line-no" href="#L35">35</a>        self.num_kv_heads = self.total_num_kv_heads // tp_size</span>
+<span class="source-line" id="L36"><a class="line-no" href="#L36">36</a>        self.head_dim = head_dim or hidden_size // self.total_num_heads</span>
+<span class="source-line" id="L37"><a class="line-no" href="#L37">37</a>        self.q_size = self.num_heads * self.head_dim</span>
+<span class="source-line" id="L38"><a class="line-no" href="#L38">38</a>        self.kv_size = self.num_kv_heads * self.head_dim</span>
+<span class="source-line" id="L39"><a class="line-no" href="#L39">39</a>        self.scaling = self.head_dim ** -0.5</span>
+<span class="source-line" id="L40"><a class="line-no" href="#L40">40</a>        self.qkv_bias = qkv_bias</span>
+<span class="source-line" id="L41"><a class="line-no" href="#L41">41</a></span>
+<span class="source-line" id="L42"><a class="line-no" href="#L42">42</a>        self.qkv_proj = QKVParallelLinear(</span>
+<span class="source-line" id="L43"><a class="line-no" href="#L43">43</a>            hidden_size,</span>
+<span class="source-line" id="L44"><a class="line-no" href="#L44">44</a>            self.head_dim,</span>
+<span class="source-line" id="L45"><a class="line-no" href="#L45">45</a>            self.total_num_heads,</span>
+<span class="source-line" id="L46"><a class="line-no" href="#L46">46</a>            self.total_num_kv_heads,</span>
+<span class="source-line" id="L47"><a class="line-no" href="#L47">47</a>            bias=qkv_bias,</span>
+<span class="source-line" id="L48"><a class="line-no" href="#L48">48</a>        )</span>
+<span class="source-line" id="L49"><a class="line-no" href="#L49">49</a>        self.o_proj = RowParallelLinear(</span>
+<span class="source-line" id="L50"><a class="line-no" href="#L50">50</a>            self.total_num_heads * self.head_dim,</span>
+<span class="source-line" id="L51"><a class="line-no" href="#L51">51</a>            hidden_size,</span>
+<span class="source-line" id="L52"><a class="line-no" href="#L52">52</a>            bias=False,</span>
+<span class="source-line" id="L53"><a class="line-no" href="#L53">53</a>        )</span>
+<span class="source-line" id="L54"><a class="line-no" href="#L54">54</a>        if isinstance(rope_scaling, dict):</span>
+<span class="source-line" id="L55"><a class="line-no" href="#L55">55</a>            rope_theta = rope_scaling.get(&quot;rope_theta&quot;, rope_theta)</span>
+<span class="source-line" id="L56"><a class="line-no" href="#L56">56</a>        self.rotary_emb = get_rope(</span>
+<span class="source-line" id="L57"><a class="line-no" href="#L57">57</a>            self.head_dim,</span>
+<span class="source-line" id="L58"><a class="line-no" href="#L58">58</a>            rotary_dim=self.head_dim,</span>
+<span class="source-line" id="L59"><a class="line-no" href="#L59">59</a>            max_position=max_position,</span>
+<span class="source-line" id="L60"><a class="line-no" href="#L60">60</a>            base=rope_theta,</span>
+<span class="source-line" id="L61"><a class="line-no" href="#L61">61</a>        )</span>
+<span class="source-line" id="L62"><a class="line-no" href="#L62">62</a>        self.attn = Attention(</span>
+<span class="source-line" id="L63"><a class="line-no" href="#L63">63</a>            self.num_heads,</span>
+<span class="source-line" id="L64"><a class="line-no" href="#L64">64</a>            self.head_dim,</span>
+<span class="source-line" id="L65"><a class="line-no" href="#L65">65</a>            self.scaling,</span>
+<span class="source-line" id="L66"><a class="line-no" href="#L66">66</a>            self.num_kv_heads,</span>
+<span class="source-line" id="L67"><a class="line-no" href="#L67">67</a>        )</span>
+<span class="source-line" id="L68"><a class="line-no" href="#L68">68</a>        if not self.qkv_bias:</span>
+<span class="source-line" id="L69"><a class="line-no" href="#L69">69</a>            self.q_norm = RMSNorm(self.head_dim, eps=rms_norm_eps)</span>
+<span class="source-line" id="L70"><a class="line-no" href="#L70">70</a>            self.k_norm = RMSNorm(self.head_dim, eps=rms_norm_eps)</span>
+<span class="source-line" id="L71"><a class="line-no" href="#L71">71</a></span>
+<span class="source-line" id="L72"><a class="line-no" href="#L72">72</a>    def forward(</span>
+<span class="source-line" id="L73"><a class="line-no" href="#L73">73</a>        self,</span>
+<span class="source-line" id="L74"><a class="line-no" href="#L74">74</a>        positions: torch.Tensor,</span>
+<span class="source-line" id="L75"><a class="line-no" href="#L75">75</a>        hidden_states: torch.Tensor,</span>
+<span class="source-line" id="L76"><a class="line-no" href="#L76">76</a>    ) -&gt; torch.Tensor:</span>
+<span class="source-line" id="L77"><a class="line-no" href="#L77">77</a>        qkv = self.qkv_proj(hidden_states)</span>
+<span class="source-line" id="L78"><a class="line-no" href="#L78">78</a>        q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)</span>
+<span class="source-line" id="L79"><a class="line-no" href="#L79">79</a>        q = q.view(-1, self.num_heads, self.head_dim)</span>
+<span class="source-line" id="L80"><a class="line-no" href="#L80">80</a>        k = k.view(-1, self.num_kv_heads, self.head_dim)</span>
+<span class="source-line" id="L81"><a class="line-no" href="#L81">81</a>        v = v.view(-1, self.num_kv_heads, self.head_dim)</span>
+<span class="source-line" id="L82"><a class="line-no" href="#L82">82</a>        if not self.qkv_bias:</span>
+<span class="source-line" id="L83"><a class="line-no" href="#L83">83</a>            q = self.q_norm(q)</span>
+<span class="source-line" id="L84"><a class="line-no" href="#L84">84</a>            k = self.k_norm(k)</span>
+<span class="source-line" id="L85"><a class="line-no" href="#L85">85</a>        q, k = self.rotary_emb(positions, q, k)</span>
+<span class="source-line" id="L86"><a class="line-no" href="#L86">86</a>        o = self.attn(q, k, v)</span>
+<span class="source-line" id="L87"><a class="line-no" href="#L87">87</a>        output = self.o_proj(o.flatten(1, -1))</span>
+<span class="source-line" id="L88"><a class="line-no" href="#L88">88</a>        return output</span>
+<span class="source-line" id="L89"><a class="line-no" href="#L89">89</a></span>
+<span class="source-line" id="L90"><a class="line-no" href="#L90">90</a></span>
+<span class="source-line" id="L91"><a class="line-no" href="#L91">91</a>class Qwen3MLP(nn.Module):</span></code></pre></main></body></html>

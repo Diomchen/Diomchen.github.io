@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>10 · vLLM 执行层</title>
+<link rel="stylesheet" href="../assets/course.css?v=2">
+</head>
+<body>
+<div class="page">
+
+<nav class="lesson-nav">
+  <a href="0009-vllm-scheduling-kv.html">← 09 调度与 KV</a>
+  <a class="home" href="../index.html">课程索引</a>
+  <a class="right" href="0011-vllm-advanced.html">11 高级特性 →</a>
+</nav>
+
+<header>
+  <p class="kicker">课程 10 · 执行层</p>
+  <h1>一张图的三种录法</h1>
+  <p class="dek">nano-vllm 的 <code>capture_cudagraph</code> 只能录 decode。vLLM 把「录图」做成了三种模式，还能一边编译一边录——这一课讲清 <code>CUDAGraphMode</code> 到底在权衡什么。</p>
+  <p class="meta">
+    <span>约 55 分钟</span>
+    <span>源码：<code>vllm/v1/executor/</code> · <code>vllm/v1/worker/</code> · <code>vllm/config/compilation.py</code></span>
+    <span>前置：06、08</span>
+  </p>
+</header><div class="aside"><span class="label">2026-11-08 源码校正</span><p>本页已按本地固定commit修正相关描述。<a href="../reference/framework-map.html">三框架对照</a> · <a href="../reference/source-map.html">带行号的离线证据</a> · <a href="../docs/research/framework-deep-dive-2026-11-08.md">核查与勘误详情</a>。</p></div>
+
+<h2><span class="num">1</span>Executor：谁来跑这一批</h2>
+
+<table>
+  <thead><tr><th>Executor</th><th>部署形态</th><th>典型场景</th></tr></thead>
+  <tbody>
+    <tr><td><code>UniProcExecutor</code></td><td>单进程单卡</td><td>本地调试、小模型</td></tr>
+    <tr><td><code>MultiprocExecutor</code></td><td>本机多进程</td><td>单机 TP / PP</td></tr>
+    <tr><td><code>RayExecutorV2</code></td><td>跨机、Ray 集群</td><td>多机、弹性伸缩</td></tr>
+  </tbody>
+</table>
+
+<p>三者对上层暴露同一个接口：<code>execute_model(scheduler_output)</code> 和 <code>sample_tokens()</code>。调度器完全不知道底下有多少张卡——这是 vLLM 能把「单卡」和「千卡」用同一份调度代码跑起来的原因。</p>
+
+<h2><span class="num">2</span>Worker 里发生了什么</h2>
+
+<pre><code>execute_model(scheduler_output)
+  ├─ 把 num_scheduled_tokens 展开成每个 token 的位置
+  ├─ 更新 block table / slot mapping（和 nano-vllm 一模一样）
+  ├─ 选 attention backend，跑前向
+  └─ 返回 hidden states 或 logits</code></pre>
+
+<p>它和 nano-vllm 的 <code>ModelRunner.run()</code> 是同一件事，只是规模不同：</p>
+
+<table>
+  <thead><tr><th></th><th>nano-vllm</th><th>vLLM Worker</th></tr></thead>
+  <tbody>
+    <tr><td>模型</td><td>Qwen3 一个文件</td><td>数百个架构的注册表 + 权重加载器</td></tr>
+    <tr><td>注意力</td><td>写死 FlashAttention</td><td>可插拔 backend（见下节）</td></tr>
+    <tr><td>图</td><td>一种录法、只录 decode</td><td>三种模式、可按 decode / mixed 分别配置</td></tr>
+    <tr><td>并行</td><td>TP</td><td>TP / PP / DP / EP</td></tr>
+    <tr><td>KV</td><td>一个大张量</td><td>多 group、可跨节点传输</td></tr>
+  </tbody>
+</table>
+
+<h3>Attention backend 为什么要插件化</h3>
+
+<p><code>vllm/v1/attention/backends/</code> 下有 <code>flash_attn</code>、<code>flashinfer</code>、<code>triton</code>、<code>flex_attention</code>、<code>composite</code>、<code>cpu_attn</code> 等十余个实现。原因：</p>
+
+<ul>
+  <li><strong>硬件差异</strong>：Hopper / Blackwell 的新特性只有特定 kernel 支持；CPU 和 Ascend 需要完全不同的实现。</li>
+  <li><strong>长度差异</strong>：短序列用简单 kernel 就够，长序列需要分块 + 在线 softmax。</li>
+  <li><strong>mask 差异</strong>：causal、sliding window、双向（encoder）、自定义 mask，实现策略不同。</li>
+</ul>
+
+<p>后端在启动时根据「模型 + 硬件 + 配置」自动选取，接口统一。你在 nano-vllm 里看到的 <code>flash_attn_varlen_func</code> / <code>flash_attn_with_kvcache</code> 两种调用，就是 <strong>FlashAttention backend 内部的两种路径</strong>。</p>
+
+<h2><span class="num">3</span>CUDA Graph 的三种模式</h2>
+
+<pre><code><span class="file">vllm/config/compilation.py · L130–140</span>class CUDAGraphMode(enum.Enum):
+    NONE = 0
+    PIECEWISE = 1
+    FULL = 2
+    FULL_DECODE_ONLY = (FULL, NONE)
+    FULL_AND_PIECEWISE = (FULL, PIECEWISE)</code></pre>
+
+<p>最后两个是「组合模式」，元组的第一位用于 <strong>decode 批次</strong>，第二位用于 <strong>mixed 批次</strong>（即含 prefill 的批次）[<a href="https://github.com/vllm-project/vllm/blob/ef9339e/vllm/config/compilation.py#L142-L152">compilation.py L142–152</a>]。</p>
+
+<table>
+  <thead><tr><th>模式</th><th>怎么录</th><th>适用</th></tr></thead>
+  <tbody>
+    <tr><td><code>NONE</code></td><td>不录，纯 eager</td><td>调试、不支持的算子</td></tr>
+    <tr><td><code>PIECEWISE</code></td><td>把模型切成若干「静态片段」，每段各录一张图；attention 等动态算子留在图外</td><td>prefill / mixed 批次</td></tr>
+    <tr><td><code>FULL</code></td><td>完整model forward作为图单位</td><td>backend支持的decode或prefill/mixed桶</td></tr>
+    <tr><td><code>FULL_DECODE_ONLY</code></td><td>decode 用 FULL，mixed 用 NONE</td><td>保守配置</td></tr>
+    <tr><td><code>FULL_AND_PIECEWISE</code></td><td>decode 用 FULL，mixed 用 PIECEWISE</td><td>一种混合策略，收益需测量</td></tr>
+  </tbody>
+</table>
+
+<h3>为什么 prefill 也能录图（nano-vllm 做不到）</h3>
+
+<p>nano-vllm 的 prefill 每轮 shape 都变（token 总数不定），所以只能 eager。vLLM 的办法是 <strong>分段</strong>：</p>
+
+<pre><code>[embedding] [norm] [qkv] [attention ✗ 动态] [o_proj] [mlp] [norm]
+   └────── 录成图 ──────┘        └─── eager ───┘  └── 录成图 ──┘</code></pre>
+
+<p>把 attention 切成图与图之间的「洞」，其余静态部分照录。这样即使总 token 数不同，每个片段的 shape 也可以是固定的（按 token 数分桶）。这就是 <strong>piecewise</strong> 的核心思想。</p>
+
+<div class="key">
+  <span class="label">一句话区分</span>
+  <p><strong>FULL</strong>捕获完整model forward；backend支持时也可以处理non-uniform prefill/mixed。<strong>PIECEWISE</strong>切分模型，动态部分可留在图外。二者都需遵守捕获形状和地址合约，通常结合分桶与padding。</p>
+</div>
+
+<h2><span class="num">4</span>核对模型、logits与采样的真实边界</h2>
+
+<p>nano-vllm capture只包含self.model，compute_logits在图外。此vLLM提交的常见GPUModelRunner路径同样在_model_forward返回后选取sample_hidden_states，再compute_logits。因此不能依据FULL名字断言logits一定入图；见<a href="../reference/source/vllm-forward.html">实际forward边界</a>。</p>
+
+<p>nano-vllm将输入值拷入预分配graph缓冲；vLLM还通过attention metadata、backend能力与模式调度协调更多模型/设备路径。应逐个核对缓冲字段，而非依据张量个数推断性能。</p>
+
+<h2><span class="num">5</span>并行的四种字母</h2>
+
+<table>
+  <thead><tr><th>缩写</th><th>切什么</th><th>通信</th><th>vLLM 里的位置</th></tr></thead>
+  <tbody>
+    <tr><td>TP</td><td>每层权重</td><td>每层 all-reduce</td><td><code>distributed/parallel_state.py</code></td></tr>
+    <tr><td>PP</td><td>层</td><td>段边界传激活</td><td>pipeline parallel 调度</td></tr>
+    <tr><td>DP</td><td>整个模型副本</td><td>无（除非 MoE）</td><td><code>DPEngineCoreProc</code></td></tr>
+    <tr><td>EP</td><td>MoE 专家</td><td>all-to-all</td><td>MoE 层 + DeepEP 类通信库</td></tr>
+  </tbody>
+</table>
+
+<p>注意 vLLM 的 DP 是在 <strong>EngineCore 进程级</strong>做的：每个 DP rank 有自己的调度器和 worker 组，前端把请求分发过去。nano-vllm 完全没有这一层——它只有 TP。</p>
+
+<h2><span class="num">6</span>练习 A · 给场景选模式</h2>
+
+<p>下面三个场景，你会选哪种 <code>CUDAGraphMode</code>？</p>
+
+<ol>
+  <li>线上服务的 decode 占 90% 时间，prefill 偶尔来一条长 prompt。</li>
+  <li>你在调试一个自定义 attention 算子，需要能断点、打印中间张量。</li>
+  <li>离线批量打分（只用 prefill，不做生成）。</li>
+</ol>
+
+<details>
+  <summary>展开：参考答案</summary>
+  <p>① FULL_AND_PIECEWISE可作为候选配置，随后在固定负载上与其他支持模式对照；不能预先保证收益最大。</p>
+  <p>② <code>NONE</code>：图内无法断点，调试必须退回 eager。</p>
+  <p>③ 先查backend的FULL能力和本轮shape桶：支持时prefill也可FULL，否则评估PIECEWISE或NONE。用固定负载测量后选择。</p>
+</details>
+
+<h2><span class="num">7</span>练习 B · 闭卷测验</h2>
+
+<div class="quiz" data-quiz="vllm-exec"></div>
+
+<h2><span class="num">8</span>面试复述卡</h2>
+
+<p><strong>「vLLM 的 CUDA Graph 怎么做的？」</strong></p>
+
+<details>
+  <summary>展开：30 秒版本</summary>
+  <p>「runtime有NONE、PIECEWISE、FULL；策略按batch形态分派模式。FULL不是仅decode，是否覆盖prefill/mixed看backend。按真实调用边界区分model forward、logits和采样，再检查捕获桶与padding。」详见<a href="0029-vllm-runner-and-measurement.html">29课</a>。</p>
+</details>
+
+<div class="ask-teacher">
+  <p><strong>可以问</strong>：「分段图的边界怎么定？」——和 torch.compile 的 graph break 是同一个问题，值得单独一节课，如果你要深入编译方向我可以加。</p>
+</div>
+
+<footer class="lesson-footer">
+  <h3>主源与延伸</h3>
+  <ul>
+    <li><strong>主源</strong>：<code>vllm/config/compilation.py</code> L130–170（<code>CUDAGraphMode</code> 全部语义）。</li>
+    <li>延伸：<code>vllm/v1/attention/backends/</code> 里任选两个 backend 对比它们的 <code>forward</code> 签名。</li>
+    <li>术语：<a href="../reference/glossary.html#compute">CUDA Graph</a>。</li>
+    <li>下一课：<strong>11 · 高级特性</strong>——投机解码、PD 分离、结构化输出，这些是怎么塞进同一套调度里的。</li>
+  </ul>
+</footer>
+
+</div>
+<script src="../assets/quiz.js?v=2"></script>
+<script>
+CourseQuiz.mount('[data-quiz="vllm-exec"]', {
+  questions: [
+    {
+      q: '`PIECEWISE` 模式能处理变化的 shape，是因为它：',
+      options: [
+        '把模型切段、attention 留在图外',
+        '把所有张量都转成 fp32',
+        '跳过 prefill 只录 decode',
+        '用 CPU 完成动态计算'
+      ],
+      answer: 0,
+      why: ' 静态片段各自录图，动态的 attention 与变长索引留在 eager，从而容忍每个批次的 token 数不同。'
+    },
+    {
+      q: '`FULL_AND_PIECEWISE` 里的两个模式分别用于：',
+      options: [
+        'decode 批次与 mixed 批次',
+        'prefill 与 embedding',
+        'TP 与 PP 两种并行',
+        '训练与推理两种阶段'
+      ],
+      answer: 0,
+      why: ' 元组第一位是 decode（shape 固定 → FULL），第二位是含 prefill 的 mixed 批次（→ PIECEWISE）。'
+    },
+    {
+      q: '调试自定义 attention 算子时应该选：',
+      options: [
+        'NONE，退回 eager 执行',
+        'FULL，整模型录图',
+        'PIECEWISE，只录静态段',
+        'FULL_DECODE_ONLY，只录解码'
+      ],
+      answer: 0,
+      why: ' 图内无法断点或打印中间张量，必须关掉录图才能调试。'
+    },
+    {
+      q: 'vLLM 把 attention backend 做成可插拔，主要不是为了：',
+      options: [
+        '减少模型权重的显存',
+        '适配不同硬件特性',
+        '支持不同 mask 与序列长度',
+        '兼容 CPU 等非 GPU 设备'
+      ],
+      answer: 0,
+      why: ' backend 换的是计算实现，与权重显存无关；其余三项都是真实动机。'
+    },
+    {
+      q: 'vLLM 的 DP（数据并行）与 TP 的本质区别是：',
+      options: [
+        'DP 复制整个模型、各自调度',
+        'DP 只切 MoE 专家层',
+        'DP 不需要任何通信',
+        'DP 只在单卡上生效'
+      ],
+      answer: 0,
+      why: ' 每个 DP rank 持有完整模型副本与独立调度器；TP 才是把每层权重切开、每层同步。'
+    }
+  ]
+});
+</script>
+<script src="../assets/highlight.js?v=2"></script>
+<script src="../assets/lesson-ui.js?v=2"></script>
+</body>
+</html>

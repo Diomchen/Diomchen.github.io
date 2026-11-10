@@ -1,0 +1,63 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>vllm-prefix-lookup</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>vllm-prefix-lookup</h1><p class="source-note">vllm/vllm/v1/core/kv_cache_manager.py · ef9339e · L266–328 · <a href="https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/core/kv_cache_manager.py#L266-L328">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>vllm · Apache-2.0</strong><p>Copyright contributors to the vLLM project。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L266"><a class="line-no" href="#L266">266</a>    def get_computed_blocks(</span>
+<span class="source-line" id="L267"><a class="line-no" href="#L267">267</a>        self, request: Request, max_cache_hit_length: int | None = None</span>
+<span class="source-line" id="L268"><a class="line-no" href="#L268">268</a>    ) -&gt; tuple[KVCacheBlocks, int, int]:</span>
+<span class="source-line" id="L269"><a class="line-no" href="#L269">269</a>        &quot;&quot;&quot;Get the computed (cached) blocks for the request.</span>
+<span class="source-line" id="L270"><a class="line-no" href="#L270">270</a>        Note that the computed blocks must be full.</span>
+<span class="source-line" id="L271"><a class="line-no" href="#L271">271</a></span>
+<span class="source-line" id="L272"><a class="line-no" href="#L272">272</a>        Args:</span>
+<span class="source-line" id="L273"><a class="line-no" href="#L273">273</a>            request: The request to get the computed blocks.</span>
+<span class="source-line" id="L274"><a class="line-no" href="#L274">274</a>            max_cache_hit_length: Upper bound on the hit length. Defaults to</span>
+<span class="source-line" id="L275"><a class="line-no" href="#L275">275</a>                ``request.get_max_cache_hit_length()``; explicit bounds can only</span>
+<span class="source-line" id="L276"><a class="line-no" href="#L276">276</a>                reduce the request&#x27;s cache hit limit.</span>
+<span class="source-line" id="L277"><a class="line-no" href="#L277">277</a></span>
+<span class="source-line" id="L278"><a class="line-no" href="#L278">278</a>        Returns:</span>
+<span class="source-line" id="L279"><a class="line-no" href="#L279">279</a>            A tuple containing:</span>
+<span class="source-line" id="L280"><a class="line-no" href="#L280">280</a>                - A list of blocks that are computed for the request.</span>
+<span class="source-line" id="L281"><a class="line-no" href="#L281">281</a>                - The number of computed tokens.</span>
+<span class="source-line" id="L282"><a class="line-no" href="#L282">282</a>                - ``shared_prefix_boundary``: the block-aligned token position of</span>
+<span class="source-line" id="L283"><a class="line-no" href="#L283">283</a>                  a shared prefix that a sparse-retention group (Mamba / sliding</span>
+<span class="source-line" id="L284"><a class="line-no" href="#L284">284</a>                  window) has not cached yet (Marconi-style APC), or 0 if none.</span>
+<span class="source-line" id="L285"><a class="line-no" href="#L285">285</a>                  Pinned so sparse prefix-cache retention does not drop</span>
+<span class="source-line" id="L286"><a class="line-no" href="#L286">286</a>                  the junction and defeat cross-request reuse.</span>
+<span class="source-line" id="L287"><a class="line-no" href="#L287">287</a></span>
+<span class="source-line" id="L288"><a class="line-no" href="#L288">288</a>        &quot;&quot;&quot;</span>
+<span class="source-line" id="L289"><a class="line-no" href="#L289">289</a>        # We skip finding the prefix cache hit when prefix caching is</span>
+<span class="source-line" id="L290"><a class="line-no" href="#L290">290</a>        # disabled or the request is marked as skipping kv cache read</span>
+<span class="source-line" id="L291"><a class="line-no" href="#L291">291</a>        # (which happens when the request requires prompt logprobs</span>
+<span class="source-line" id="L292"><a class="line-no" href="#L292">292</a>        # or calls a pooling model with all pooling).</span>
+<span class="source-line" id="L293"><a class="line-no" href="#L293">293</a>        if not self.prefix_cache_lookup_enabled(request):</span>
+<span class="source-line" id="L294"><a class="line-no" href="#L294">294</a>            return self.empty_kv_cache_blocks, 0, 0</span>
+<span class="source-line" id="L295"><a class="line-no" href="#L295">295</a></span>
+<span class="source-line" id="L296"><a class="line-no" href="#L296">296</a>        # NOTE: When all tokens hit the cache, we must recompute the last token</span>
+<span class="source-line" id="L297"><a class="line-no" href="#L297">297</a>        # to obtain logits. Thus, set max_cache_hit_length to prompt_length - 1.</span>
+<span class="source-line" id="L298"><a class="line-no" href="#L298">298</a>        # This can trigger recomputation of an entire block, rather than just</span>
+<span class="source-line" id="L299"><a class="line-no" href="#L299">299</a>        # the single last token, because allocate_slots() requires</span>
+<span class="source-line" id="L300"><a class="line-no" href="#L300">300</a>        # num_computed_tokens to be block-size aligned. Removing this limitation</span>
+<span class="source-line" id="L301"><a class="line-no" href="#L301">301</a>        # could slightly improve performance in the future.</span>
+<span class="source-line" id="L302"><a class="line-no" href="#L302">302</a>        max_cache_hit_length = request.get_max_cache_hit_length(max_cache_hit_length)</span>
+<span class="source-line" id="L303"><a class="line-no" href="#L303">303</a>        computed_blocks, num_new_computed_tokens, num_uncached = (</span>
+<span class="source-line" id="L304"><a class="line-no" href="#L304">304</a>            self.coordinator.find_longest_cache_hit(</span>
+<span class="source-line" id="L305"><a class="line-no" href="#L305">305</a>                request.block_hashes, max_cache_hit_length</span>
+<span class="source-line" id="L306"><a class="line-no" href="#L306">306</a>            )</span>
+<span class="source-line" id="L307"><a class="line-no" href="#L307">307</a>        )</span>
+<span class="source-line" id="L308"><a class="line-no" href="#L308">308</a></span>
+<span class="source-line" id="L309"><a class="line-no" href="#L309">309</a>        # When kv_cache_report_mode is &quot;full&quot;, emit BlockStored events</span>
+<span class="source-line" id="L310"><a class="line-no" href="#L310">310</a>        # for the reused prefix cache blocks so that external consumers</span>
+<span class="source-line" id="L311"><a class="line-no" href="#L311">311</a>        # (e.g. gateway) can learn about them.</span>
+<span class="source-line" id="L312"><a class="line-no" href="#L312">312</a>        if (</span>
+<span class="source-line" id="L313"><a class="line-no" href="#L313">313</a>            num_new_computed_tokens &gt; 0</span>
+<span class="source-line" id="L314"><a class="line-no" href="#L314">314</a>            and self.enable_kv_cache_events</span>
+<span class="source-line" id="L315"><a class="line-no" href="#L315">315</a>            and getattr(request, &quot;kv_cache_report_mode&quot;, &quot;incremental&quot;) == &quot;full&quot;</span>
+<span class="source-line" id="L316"><a class="line-no" href="#L316">316</a>        ):</span>
+<span class="source-line" id="L317"><a class="line-no" href="#L317">317</a>            self.coordinator.emit_cached_block_events(request, computed_blocks)</span>
+<span class="source-line" id="L318"><a class="line-no" href="#L318">318</a></span>
+<span class="source-line" id="L319"><a class="line-no" href="#L319">319</a>        # The junction to pin is where the lagging sparse-retention group stops</span>
+<span class="source-line" id="L320"><a class="line-no" href="#L320">320</a>        # (``num_new_computed_tokens``) plus the uncached shared prefix -- i.e.</span>
+<span class="source-line" id="L321"><a class="line-no" href="#L321">321</a>        # the longest single-group hit. Sub-block gaps are left to the mask,</span>
+<span class="source-line" id="L322"><a class="line-no" href="#L322">322</a>        # which floors to the alignment boundary (a no-op there).</span>
+<span class="source-line" id="L323"><a class="line-no" href="#L323">323</a>        shared_prefix_boundary = (</span>
+<span class="source-line" id="L324"><a class="line-no" href="#L324">324</a>            num_new_computed_tokens + num_uncached if num_uncached else 0</span>
+<span class="source-line" id="L325"><a class="line-no" href="#L325">325</a>        )</span>
+<span class="source-line" id="L326"><a class="line-no" href="#L326">326</a></span>
+<span class="source-line" id="L327"><a class="line-no" href="#L327">327</a>        blocks = self.create_kv_cache_blocks(computed_blocks)</span>
+<span class="source-line" id="L328"><a class="line-no" href="#L328">328</a>        return blocks, num_new_computed_tokens, shared_prefix_boundary</span></code></pre></main></body></html>

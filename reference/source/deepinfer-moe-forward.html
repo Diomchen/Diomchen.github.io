@@ -1,0 +1,52 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>deepinfer-moe-forward</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>deepinfer-moe-forward</h1><p class="source-note">deepinfer/deepinfer/model_executor/models/v4_modules/mlp.py · a679bb8 · L565–616 · <a href="https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/model_executor/models/v4_modules/mlp.py#L565-L616">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>deepinfer · Apache-2.0</strong><p>DeepInfer project and its contributors。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/deepinfer/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L565"><a class="line-no" href="#L565">565</a>    def forward(</span>
+<span class="source-line" id="L566"><a class="line-no" href="#L566">566</a>        self,</span>
+<span class="source-line" id="L567"><a class="line-no" href="#L567">567</a>        hidden_states: torch.Tensor | tuple[torch.Tensor, torch.Tensor],</span>
+<span class="source-line" id="L568"><a class="line-no" href="#L568">568</a>        hidden_states_bf16: torch.Tensor,</span>
+<span class="source-line" id="L569"><a class="line-no" href="#L569">569</a>        input_metadata: InputMetadata,</span>
+<span class="source-line" id="L570"><a class="line-no" href="#L570">570</a>    ) -&gt; torch.Tensor:</span>
+<span class="source-line" id="L571"><a class="line-no" href="#L571">571</a>        if self.use_mega_moe:</span>
+<span class="source-line" id="L572"><a class="line-no" href="#L572">572</a>            return self.mega_moe_forward(hidden_states, hidden_states_bf16, input_metadata)</span>
+<span class="source-line" id="L573"><a class="line-no" href="#L573">573</a></span>
+<span class="source-line" id="L574"><a class="line-no" href="#L574">574</a>        topk_idx, topk_weights = self.gate_forward(hidden_states_bf16, input_metadata)</span>
+<span class="source-line" id="L575"><a class="line-no" href="#L575">575</a></span>
+<span class="source-line" id="L576"><a class="line-no" href="#L576">576</a>        try:</span>
+<span class="source-line" id="L577"><a class="line-no" href="#L577">577</a>            # Dispatch</span>
+<span class="source-line" id="L578"><a class="line-no" href="#L578">578</a>            event_overlap = self.dispatch(</span>
+<span class="source-line" id="L579"><a class="line-no" href="#L579">579</a>                hidden_states,</span>
+<span class="source-line" id="L580"><a class="line-no" href="#L580">580</a>                topk_idx,</span>
+<span class="source-line" id="L581"><a class="line-no" href="#L581">581</a>                topk_weights,</span>
+<span class="source-line" id="L582"><a class="line-no" href="#L582">582</a>                input_metadata,</span>
+<span class="source-line" id="L583"><a class="line-no" href="#L583">583</a>                None,</span>
+<span class="source-line" id="L584"><a class="line-no" href="#L584">584</a>            )</span>
+<span class="source-line" id="L585"><a class="line-no" href="#L585">585</a>            moe_in_hidden, _dispatched_topk_idx, dispatched_topk_weights, handle = event_overlap.current_stream_wait()</span>
+<span class="source-line" id="L586"><a class="line-no" href="#L586">586</a></span>
+<span class="source-line" id="L587"><a class="line-no" href="#L587">587</a>            # MoE compute</span>
+<span class="source-line" id="L588"><a class="line-no" href="#L588">588</a>            with cuda_graph_timer.record(</span>
+<span class="source-line" id="L589"><a class="line-no" href="#L589">589</a>                &quot;routed_experts&quot;,</span>
+<span class="source-line" id="L590"><a class="line-no" href="#L590">590</a>                enabled=(self.layer_idx == 1 and not input_metadata.is_prompt),</span>
+<span class="source-line" id="L591"><a class="line-no" href="#L591">591</a>                scale=eplb.current().num_moe_layers,</span>
+<span class="source-line" id="L592"><a class="line-no" href="#L592">592</a>            ):</span>
+<span class="source-line" id="L593"><a class="line-no" href="#L593">593</a>                moe_out_hidden = self.routed_experts_forward(</span>
+<span class="source-line" id="L594"><a class="line-no" href="#L594">594</a>                    moe_in_hidden,</span>
+<span class="source-line" id="L595"><a class="line-no" href="#L595">595</a>                    dispatched_topk_weights,</span>
+<span class="source-line" id="L596"><a class="line-no" href="#L596">596</a>                    handle.psum_num_recv_tokens_per_expert,</span>
+<span class="source-line" id="L597"><a class="line-no" href="#L597">597</a>                    expected_m=None,</span>
+<span class="source-line" id="L598"><a class="line-no" href="#L598">598</a>                )</span>
+<span class="source-line" id="L599"><a class="line-no" href="#L599">599</a></span>
+<span class="source-line" id="L600"><a class="line-no" href="#L600">600</a>            # Combine</span>
+<span class="source-line" id="L601"><a class="line-no" href="#L601">601</a>            combine_pre_evt = self.ep_buffer.capture()</span>
+<span class="source-line" id="L602"><a class="line-no" href="#L602">602</a>            with limit_num_sms(envs.DEEPINFER_USERBUFFER_COMM_SMS, enabled=PLATFORM.is_gpu):</span>
+<span class="source-line" id="L603"><a class="line-no" href="#L603">603</a>                shared_out = self.shared_forward(hidden_states)</span>
+<span class="source-line" id="L604"><a class="line-no" href="#L604">604</a>            event_overlap = self.combine(</span>
+<span class="source-line" id="L605"><a class="line-no" href="#L605">605</a>                moe_out_hidden,</span>
+<span class="source-line" id="L606"><a class="line-no" href="#L606">606</a>                shared_out,</span>
+<span class="source-line" id="L607"><a class="line-no" href="#L607">607</a>                handle,</span>
+<span class="source-line" id="L608"><a class="line-no" href="#L608">608</a>                combine_pre_evt,</span>
+<span class="source-line" id="L609"><a class="line-no" href="#L609">609</a>            )</span>
+<span class="source-line" id="L610"><a class="line-no" href="#L610">610</a>            moe_combined_hidden, _combined_topk_weights = event_overlap.current_stream_wait()</span>
+<span class="source-line" id="L611"><a class="line-no" href="#L611">611</a></span>
+<span class="source-line" id="L612"><a class="line-no" href="#L612">612</a>        except Exception:</span>
+<span class="source-line" id="L613"><a class="line-no" href="#L613">613</a>            logger.exception(f&quot;[rank {PG.get_rank()}] Exception during MoE forward, topk_idx.shape = {topk_idx.shape}&quot;)</span>
+<span class="source-line" id="L614"><a class="line-no" href="#L614">614</a>            raise</span>
+<span class="source-line" id="L615"><a class="line-no" href="#L615">615</a></span>
+<span class="source-line" id="L616"><a class="line-no" href="#L616">616</a>        return moe_combined_hidden</span></code></pre></main></body></html>

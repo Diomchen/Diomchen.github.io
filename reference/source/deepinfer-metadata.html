@@ -1,0 +1,68 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>deepinfer-metadata</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>deepinfer-metadata</h1><p class="source-note">deepinfer/csrc/engine/scheduler.hpp · a679bb8 · L667–734 · <a href="https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/csrc/engine/scheduler.hpp#L667-L734">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>deepinfer · Apache-2.0</strong><p>DeepInfer project and its contributors。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/deepinfer/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L667"><a class="line-no" href="#L667">667</a>    py::tuple schedule(SequenceMetadataPool *sequence_metadata_pool) {</span>
+<span class="source-line" id="L668"><a class="line-no" href="#L668">668</a>        auto p_scheduler_outputs = _schedule();</span>
+<span class="source-line" id="L669"><a class="line-no" href="#L669">669</a>        auto &amp;scheduler_outputs = *p_scheduler_outputs;</span>
+<span class="source-line" id="L670"><a class="line-no" href="#L670">670</a></span>
+<span class="source-line" id="L671"><a class="line-no" href="#L671">671</a>        TORCH_CHECK(scheduler_outputs.num_batched_tokens &lt;= max_num_batched_tokens,</span>
+<span class="source-line" id="L672"><a class="line-no" href="#L672">672</a>            &quot;调度的请求 token 数量超过了 max_num_batched_tokens, 不应该&quot;, &quot;max_num_batched_tokens: &quot;, max_num_batched_tokens,</span>
+<span class="source-line" id="L673"><a class="line-no" href="#L673">673</a>            &quot; scheduler_outputs.num_batched_tokens: &quot;, scheduler_outputs.num_batched_tokens);</span>
+<span class="source-line" id="L674"><a class="line-no" href="#L674">674</a></span>
+<span class="source-line" id="L675"><a class="line-no" href="#L675">675</a>        schedule_counter += 1;</span>
+<span class="source-line" id="L676"><a class="line-no" href="#L676">676</a>        if (scheduler_outputs.prompt_run) {</span>
+<span class="source-line" id="L677"><a class="line-no" href="#L677">677</a>            decode_step = 0;</span>
+<span class="source-line" id="L678"><a class="line-no" href="#L678">678</a>        } else {</span>
+<span class="source-line" id="L679"><a class="line-no" href="#L679">679</a>            running = scheduler_outputs.scheduled_seqs;</span>
+<span class="source-line" id="L680"><a class="line-no" href="#L680">680</a>            decode_step += 1;</span>
+<span class="source-line" id="L681"><a class="line-no" href="#L681">681</a>            if (nextn &gt; 0) {</span>
+<span class="source-line" id="L682"><a class="line-no" href="#L682">682</a>                TORCH_CHECK(get_num_used_mtp_info_slots() == static_cast&lt;int64_t&gt;(running.size()),</span>
+<span class="source-line" id="L683"><a class="line-no" href="#L683">683</a>                    &quot;The number of used MTP info slots must match the running queue size: used=&quot;, get_num_used_mtp_info_slots(),</span>
+<span class="source-line" id="L684"><a class="line-no" href="#L684">684</a>                    &quot;, running=&quot;, running.size());</span>
+<span class="source-line" id="L685"><a class="line-no" href="#L685">685</a>            }</span>
+<span class="source-line" id="L686"><a class="line-no" href="#L686">686</a>        }</span>
+<span class="source-line" id="L687"><a class="line-no" href="#L687">687</a></span>
+<span class="source-line" id="L688"><a class="line-no" href="#L688">688</a>        py::list seq_metadata_list(scheduler_outputs.scheduled_seqs.size());</span>
+<span class="source-line" id="L689"><a class="line-no" href="#L689">689</a>        int max_seqlen_q = nextn + 1;</span>
+<span class="source-line" id="L690"><a class="line-no" href="#L690">690</a>        int64_t attn_flops = 0, total_flops = 0;</span>
+<span class="source-line" id="L691"><a class="line-no" href="#L691">691</a>        int i = 0;</span>
+<span class="source-line" id="L692"><a class="line-no" href="#L692">692</a>        for (auto &amp;&amp;p_seq : scheduler_outputs.scheduled_seqs) {</span>
+<span class="source-line" id="L693"><a class="line-no" href="#L693">693</a>            auto &amp;&amp;seq = p_seq.get();</span>
+<span class="source-line" id="L694"><a class="line-no" href="#L694">694</a>            seq-&gt;mtp.schedule_cnt += 1;</span>
+<span class="source-line" id="L695"><a class="line-no" href="#L695">695</a>            auto golden_token = seq-&gt;mtp.next_golden_tokens(seq-&gt;get_output_len(), nextn);</span>
+<span class="source-line" id="L696"><a class="line-no" href="#L696">696</a>            int seqlen_q = scheduler_outputs.seqlens_q[i];</span>
+<span class="source-line" id="L697"><a class="line-no" href="#L697">697</a>            int seqlen_k = seq-&gt;cache.num_tokens + seq-&gt;schedule.total_inflight_tokens + seqlen_q;</span>
+<span class="source-line" id="L698"><a class="line-no" href="#L698">698</a>            // 本步 position 的开区间上界：prefill 止于 seqlen_k；decode 的 seqlen_q 在 GPU 上至多补到 max_seqlen_q（同 zos.cpp 的</span>
+<span class="source-line" id="L699"><a class="line-no" href="#L699">699</a>            // max_k），DFlash draft 再往后 nextn。RoPE cache 等按 position 索引的 buffer 都只有 runtime_max_model_len 行。</span>
+<span class="source-line" id="L700"><a class="line-no" href="#L700">700</a>            int position_end = scheduler_outputs.prompt_run ? seqlen_k : seqlen_k - seqlen_q + max_seqlen_q + nextn;</span>
+<span class="source-line" id="L701"><a class="line-no" href="#L701">701</a>            TORCH_CHECK(position_end &lt;= runtime_max_model_len,</span>
+<span class="source-line" id="L702"><a class="line-no" href="#L702">702</a>                std::format(&quot;position_end={} exceeds runtime_max_model_len={}: request_id={} branch={} len={} num_tokens={} inflight={} &quot;</span>
+<span class="source-line" id="L703"><a class="line-no" href="#L703">703</a>                            &quot;seqlen_q={} prompt_run={}&quot;,</span>
+<span class="source-line" id="L704"><a class="line-no" href="#L704">704</a>                    position_end, runtime_max_model_len, seq-&gt;request.request_id, seq-&gt;schedule.branch_id, seq-&gt;get_len(),</span>
+<span class="source-line" id="L705"><a class="line-no" href="#L705">705</a>                    seq-&gt;cache.num_tokens, seq-&gt;schedule.total_inflight_tokens, seqlen_q, scheduler_outputs.prompt_run));</span>
+<span class="source-line" id="L706"><a class="line-no" href="#L706">706</a>            auto &amp;&amp;p_metadata =</span>
+<span class="source-line" id="L707"><a class="line-no" href="#L707">707</a>                sequence_metadata_pool-&gt;allocate(seq, scheduler_outputs.prompt_run, seqlen_q, seqlen_k, std::move(golden_token));</span>
+<span class="source-line" id="L708"><a class="line-no" href="#L708">708</a></span>
+<span class="source-line" id="L709"><a class="line-no" href="#L709">709</a>            scheduler_outputs.sum_seqlen_qxk += static_cast&lt;int64_t&gt;(seqlen_q) * seqlen_k;</span>
+<span class="source-line" id="L710"><a class="line-no" href="#L710">710</a>            scheduler_outputs.max_seqlen_k = std::max(scheduler_outputs.max_seqlen_k, seqlen_k);</span>
+<span class="source-line" id="L711"><a class="line-no" href="#L711">711</a></span>
+<span class="source-line" id="L712"><a class="line-no" href="#L712">712</a>            if (log_stats) {</span>
+<span class="source-line" id="L713"><a class="line-no" href="#L713">713</a>                const bool is_prompt = scheduler_outputs.prompt_run;</span>
+<span class="source-line" id="L714"><a class="line-no" href="#L714">714</a>                const int full_len = seq-&gt;input.tokens.get_len();</span>
+<span class="source-line" id="L715"><a class="line-no" href="#L715">715</a>                const auto [attn, total] =</span>
+<span class="source-line" id="L716"><a class="line-no" href="#L716">716</a>                    flops_estimator-&gt;calc_flops(seqlen_q, seqlen_k, is_prompt, full_len, is_prompt ? seq-&gt;cache.swa_valid_start : 0);</span>
+<span class="source-line" id="L717"><a class="line-no" href="#L717">717</a>                attn_flops += attn;</span>
+<span class="source-line" id="L718"><a class="line-no" href="#L718">718</a>                total_flops += total;</span>
+<span class="source-line" id="L719"><a class="line-no" href="#L719">719</a>            }</span>
+<span class="source-line" id="L720"><a class="line-no" href="#L720">720</a></span>
+<span class="source-line" id="L721"><a class="line-no" href="#L721">721</a>            if (scheduler_outputs.min_seqlen_k == 0 || scheduler_outputs.min_seqlen_k &gt; seqlen_k) {</span>
+<span class="source-line" id="L722"><a class="line-no" href="#L722">722</a>                scheduler_outputs.min_seqlen_k = seqlen_k;</span>
+<span class="source-line" id="L723"><a class="line-no" href="#L723">723</a>            }</span>
+<span class="source-line" id="L724"><a class="line-no" href="#L724">724</a></span>
+<span class="source-line" id="L725"><a class="line-no" href="#L725">725</a>            seq_metadata_list[i] = std::move(p_metadata);</span>
+<span class="source-line" id="L726"><a class="line-no" href="#L726">726</a>            seq-&gt;schedule.start_inflight_step(max_seqlen_q);</span>
+<span class="source-line" id="L727"><a class="line-no" href="#L727">727</a></span>
+<span class="source-line" id="L728"><a class="line-no" href="#L728">728</a>            i += 1;</span>
+<span class="source-line" id="L729"><a class="line-no" href="#L729">729</a>        }</span>
+<span class="source-line" id="L730"><a class="line-no" href="#L730">730</a>        scheduler_outputs.attn_tflops = attn_flops / 1e12;</span>
+<span class="source-line" id="L731"><a class="line-no" href="#L731">731</a>        scheduler_outputs.total_tflops = total_flops / 1e12;</span>
+<span class="source-line" id="L732"><a class="line-no" href="#L732">732</a>        last_step_num_batched_tokens = scheduler_outputs.num_batched_tokens;</span>
+<span class="source-line" id="L733"><a class="line-no" href="#L733">733</a>        last_step_cached_tokens = scheduler_outputs.num_cached_tokens_gpu;</span>
+<span class="source-line" id="L734"><a class="line-no" href="#L734">734</a></span></code></pre></main></body></html>

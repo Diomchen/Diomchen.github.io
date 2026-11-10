@@ -1,0 +1,20 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>4070 Ti 本地实验台</title><link rel="stylesheet" href="../assets/course.css?v=2"><link rel="stylesheet" href="../assets/deep-dive.css"><link rel="stylesheet" href="../assets/dimensions.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../index.html">← 课程首页</a><a href="visual-atlas.html">图解索引</a><a href="source-map.html">源码索引</a></nav><header><p class="kicker">离线速查 / 2026-11-08</p><h1>4070 Ti 本地实验台</h1></header>
+<div class="aside"><strong>作者验证环境记录</strong><p>以下硬件与环境检查描述作者在2026年11月的验证环境，不是在检测访问者设备。GPU合成实验尚未实际执行；请下载<a href="start-here.html">完整课程</a>后在自己的机器运行。</p></div><p class="dek">12GB显存、64GB主存、WSL Ubuntu。先用CPU模拟把状态走对，再用小型CUDA实验测量真实硬件。无需下载模型。</p>
+<div class="key"><strong>现在就能打开：</strong><p><a href="../labs/results/scheduler-wsl/scheduler-trace.html">WSL已运行的调度轨迹</a> · <a href="../labs/results/scheduler-prefill-first/scheduler-trace.html">含抢占的对照轨迹</a>。每一步展示请求状态、物理块、引用数、positions与slot_mapping。迭代编号不是毫秒。</p></div>
+<h2>01 / 不装依赖，先看一个请求怎么完成</h2><pre><code>cd ~/vllm-learn
+python3 labs/scheduler_sim.py
+python3 labs/scheduler_sim.py --blocks 4 --budget 4 --out labs/results/scheduler-tight</code></pre><p>默认4条合成请求，共16个输出toy token。改变块数、token预算、prefix开关和调度策略后生成新的JSON与可交互HTML。报告已验证引用计数、完整块前缀、free队列和完成状态。两种策略只模拟教学概念，不是框架实现的替身。</p>
+<h2>02 / 数值证明Transformer缓存等价</h2><pre><code>python3 labs/transformer_lab.py all
+python3 labs/inference_lab.py all</code></pre><p>这7个CPU实验需要NumPy。两层toy decoder比较完整、逐token、chunked前向；错误mask是必须失败的负对照。EPLB与DSpark使用明确的缩小算例，不需要大型模型或多卡。</p>
+<h2>03 / 用4070 Ti做四组小型GPU实验</h2><div class="table-scroll"><table><tr><th>实验</th><th>变量与输出</th><th>能解释什么</th></tr><tr><td>correctness</td><td>full/token/chunk最大误差</td><td>带缓存的非方阵mask必须对齐绝对位置</td></tr><tr><td>attention</td><td>T=256/512/1024，耗时与峰值分配</td><td>物化分数矩阵与SDPA auto的开销</td></tr><tr><td>memory</td><td>标准BF16 KV张量实际字节</td><td>112KiB/token，不把主存当显存</td></tr><tr><td>graph</td><td>同输入buffer的eager/replay</td><td>静态地址与内容可变的区别</td></tr></table></div>
+<pre><code>bash labs/run-wsl.sh diagnose
+# 先激活已安装CUDA PyTorch的环境，然后：
+bash labs/run-wsl.sh gpu
+bash labs/run-wsl.sh bf16
+# 或显式选择已有解释器
+LAB_PYTHON=/你的环境/bin/python bash labs/run-wsl.sh gpu</code></pre>
+<div class="aside"><strong>实际验证边界</strong><p>CPU模拟已在WSL运行，NumPy实验在宿主Python运行通过。此次检测Ubuntu默认/usr/bin/python3没有PyTorch，因此GPU实验脚本已完成，尚未在这台GPU上执行；没有填造性能结果。完整环境与命令见<a href="../labs/LOCAL-LABS.md">本地实验手册</a>。</p></div>
+<h2>逐元素验证维度转换</h2><p>配合<a href="dimension-walkthrough.html">维度图解</a>运行 <code>python3 labs/dimension_lab.py</code>。标准库即可跑分头、转置、QKV切片、attention、packed、SwiGLU与TP的数值反例。</p>
+<h2>先预测，再比较结果</h2><ol><li>固定policy/blocks/budget，仅关闭prefix，预测输入计算量变化。</li><li>固定其它变量，仅减少blocks，观察排队、复算和抢占；不保证所有场景都会抢占。</li><li>固定dtype/shape，只比较naive与SDPA；auto不保证FlashAttention，两者精度路径也不同。</li><li>图捕获后只修改buffer内容，验证replay；不要直接替换输入张量。</li></ol>
+<p>GPU报告成功运行后自动生成JSON、CSV、HTML。计时做warmup与同步，报告CUDA事件和墙钟；不把合成算子的耗时写成推理框架吞吐。详见<a href="../labs/LOCAL-LABS.md">完整手册</a>、<a href="review-roadmap.html">复习路线</a>与<a href="source-map.html">源码证据</a>。把你预测和实测的差异发给老师，我们据此继续拆解。</p>
+</main><script src="../assets/quiz.js"></script><script src="../assets/explorers.js"></script><script src="../assets/highlight.js?v=2"></script><script src="../assets/lesson-ui.js?v=2"></script></body></html>

@@ -1,0 +1,33 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>nano-attention</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>nano-attention</h1><p class="source-note">nano-vllm/nanovllm/layers/attention.py · bb823b3 · L43–75 · <a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/layers/attention.py#L43-L75">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>nano-vllm · MIT</strong><p>Copyright (c) 2025 Xingkai Yu。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/nano-vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L43"><a class="line-no" href="#L43">43</a>class Attention(nn.Module):</span>
+<span class="source-line" id="L44"><a class="line-no" href="#L44">44</a></span>
+<span class="source-line" id="L45"><a class="line-no" href="#L45">45</a>    def __init__(</span>
+<span class="source-line" id="L46"><a class="line-no" href="#L46">46</a>        self,</span>
+<span class="source-line" id="L47"><a class="line-no" href="#L47">47</a>        num_heads,</span>
+<span class="source-line" id="L48"><a class="line-no" href="#L48">48</a>        head_dim,</span>
+<span class="source-line" id="L49"><a class="line-no" href="#L49">49</a>        scale,</span>
+<span class="source-line" id="L50"><a class="line-no" href="#L50">50</a>        num_kv_heads,</span>
+<span class="source-line" id="L51"><a class="line-no" href="#L51">51</a>    ):</span>
+<span class="source-line" id="L52"><a class="line-no" href="#L52">52</a>        super().__init__()</span>
+<span class="source-line" id="L53"><a class="line-no" href="#L53">53</a>        self.num_heads = num_heads</span>
+<span class="source-line" id="L54"><a class="line-no" href="#L54">54</a>        self.head_dim = head_dim</span>
+<span class="source-line" id="L55"><a class="line-no" href="#L55">55</a>        self.scale = scale</span>
+<span class="source-line" id="L56"><a class="line-no" href="#L56">56</a>        self.num_kv_heads = num_kv_heads</span>
+<span class="source-line" id="L57"><a class="line-no" href="#L57">57</a>        self.k_cache = self.v_cache = torch.tensor([])</span>
+<span class="source-line" id="L58"><a class="line-no" href="#L58">58</a></span>
+<span class="source-line" id="L59"><a class="line-no" href="#L59">59</a>    def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):</span>
+<span class="source-line" id="L60"><a class="line-no" href="#L60">60</a>        context = get_context()</span>
+<span class="source-line" id="L61"><a class="line-no" href="#L61">61</a>        k_cache, v_cache = self.k_cache, self.v_cache</span>
+<span class="source-line" id="L62"><a class="line-no" href="#L62">62</a>        if k_cache.numel() and v_cache.numel():</span>
+<span class="source-line" id="L63"><a class="line-no" href="#L63">63</a>            store_kvcache(k, v, k_cache, v_cache, context.slot_mapping)</span>
+<span class="source-line" id="L64"><a class="line-no" href="#L64">64</a>        if context.is_prefill:</span>
+<span class="source-line" id="L65"><a class="line-no" href="#L65">65</a>            if context.block_tables is not None:    # prefix cache</span>
+<span class="source-line" id="L66"><a class="line-no" href="#L66">66</a>                k, v = k_cache, v_cache</span>
+<span class="source-line" id="L67"><a class="line-no" href="#L67">67</a>            o = flash_attn_varlen_func(q, k, v,</span>
+<span class="source-line" id="L68"><a class="line-no" href="#L68">68</a>                                       max_seqlen_q=context.max_seqlen_q, cu_seqlens_q=context.cu_seqlens_q,</span>
+<span class="source-line" id="L69"><a class="line-no" href="#L69">69</a>                                       max_seqlen_k=context.max_seqlen_k, cu_seqlens_k=context.cu_seqlens_k,</span>
+<span class="source-line" id="L70"><a class="line-no" href="#L70">70</a>                                       softmax_scale=self.scale, causal=True, block_table=context.block_tables)</span>
+<span class="source-line" id="L71"><a class="line-no" href="#L71">71</a>        else:    # decode</span>
+<span class="source-line" id="L72"><a class="line-no" href="#L72">72</a>            o = flash_attn_with_kvcache(q.unsqueeze(1), k_cache, v_cache,</span>
+<span class="source-line" id="L73"><a class="line-no" href="#L73">73</a>                                        cache_seqlens=context.context_lens, block_table=context.block_tables, </span>
+<span class="source-line" id="L74"><a class="line-no" href="#L74">74</a>                                        softmax_scale=self.scale, causal=True)</span>
+<span class="source-line" id="L75"><a class="line-no" href="#L75">75</a>        return o</span></code></pre></main></body></html>

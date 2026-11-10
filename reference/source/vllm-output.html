@@ -1,0 +1,110 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>vllm-output</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>vllm-output</h1><p class="source-note">vllm/vllm/v1/core/sched/scheduler.py · ef9339e · L2349–2458 · <a href="https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/core/sched/scheduler.py#L2349-L2458">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>vllm · Apache-2.0</strong><p>Copyright contributors to the vLLM project。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L2349"><a class="line-no" href="#L2349">2349</a>        stopped_preempted_reqs: set[Request] = set()</span>
+<span class="source-line" id="L2350"><a class="line-no" href="#L2350">2350</a>        # Stopped resumable requests to re-enqueue, in output order.</span>
+<span class="source-line" id="L2351"><a class="line-no" href="#L2351">2351</a>        continuing_reqs: list[Request] = []</span>
+<span class="source-line" id="L2352"><a class="line-no" href="#L2352">2352</a>        for req_id, num_tokens_scheduled in num_scheduled_tokens.items():</span>
+<span class="source-line" id="L2353"><a class="line-no" href="#L2353">2353</a>            assert num_tokens_scheduled &gt; 0</span>
+<span class="source-line" id="L2354"><a class="line-no" href="#L2354">2354</a>            request = self.requests.get(req_id)</span>
+<span class="source-line" id="L2355"><a class="line-no" href="#L2355">2355</a>            output_is_stale = False</span>
+<span class="source-line" id="L2356"><a class="line-no" href="#L2356">2356</a>            if request is not None:</span>
+<span class="source-line" id="L2357"><a class="line-no" href="#L2357">2357</a>                request.num_in_flight_tokens -= num_tokens_scheduled</span>
+<span class="source-line" id="L2358"><a class="line-no" href="#L2358">2358</a>                # Drain any stale share (see _preempt_request) in lockstep.</span>
+<span class="source-line" id="L2359"><a class="line-no" href="#L2359">2359</a>                if request.num_stale_output_tokens &gt; 0:</span>
+<span class="source-line" id="L2360"><a class="line-no" href="#L2360">2360</a>                    output_is_stale = True</span>
+<span class="source-line" id="L2361"><a class="line-no" href="#L2361">2361</a>                    request.num_stale_output_tokens -= num_tokens_scheduled</span>
+<span class="source-line" id="L2362"><a class="line-no" href="#L2362">2362</a>                    assert request.num_stale_output_tokens &gt;= 0</span>
+<span class="source-line" id="L2363"><a class="line-no" href="#L2363">2363</a>            if failed_kv_load_req_ids and req_id in failed_kv_load_req_ids:</span>
+<span class="source-line" id="L2364"><a class="line-no" href="#L2364">2364</a>                # skip failed or rescheduled requests from KV load failure</span>
+<span class="source-line" id="L2365"><a class="line-no" href="#L2365">2365</a>                continue</span>
+<span class="source-line" id="L2366"><a class="line-no" href="#L2366">2366</a>            if request is None or request.is_finished():</span>
+<span class="source-line" id="L2367"><a class="line-no" href="#L2367">2367</a>                # The request is already finished. This can happen if the</span>
+<span class="source-line" id="L2368"><a class="line-no" href="#L2368">2368</a>                # request is aborted while the model is executing it (e.g.,</span>
+<span class="source-line" id="L2369"><a class="line-no" href="#L2369">2369</a>                # in pipeline parallelism or in async scheduling).</span>
+<span class="source-line" id="L2370"><a class="line-no" href="#L2370">2370</a>                # NOTE(Kuntai): When delay_free_blocks=True (for async KV</span>
+<span class="source-line" id="L2371"><a class="line-no" href="#L2371">2371</a>                # cache transfer in KV connector), the aborted request will not</span>
+<span class="source-line" id="L2372"><a class="line-no" href="#L2372">2372</a>                # be set to None (in order to finish async KV transfer).</span>
+<span class="source-line" id="L2373"><a class="line-no" href="#L2373">2373</a>                # In this case, we use is_finished() to check.</span>
+<span class="source-line" id="L2374"><a class="line-no" href="#L2374">2374</a>                continue</span>
+<span class="source-line" id="L2375"><a class="line-no" href="#L2375">2375</a></span>
+<span class="source-line" id="L2376"><a class="line-no" href="#L2376">2376</a>            # Drop-mode stale output (same-step resume) is discarded entirely.</span>
+<span class="source-line" id="L2377"><a class="line-no" href="#L2377">2377</a>            if output_is_stale and request.drop_stale_output:</span>
+<span class="source-line" id="L2378"><a class="line-no" href="#L2378">2378</a>                continue</span>
+<span class="source-line" id="L2379"><a class="line-no" href="#L2379">2379</a></span>
+<span class="source-line" id="L2380"><a class="line-no" href="#L2380">2380</a>            req_index = model_runner_output.req_id_to_index[req_id]</span>
+<span class="source-line" id="L2381"><a class="line-no" href="#L2381">2381</a>            generated_token_ids = (</span>
+<span class="source-line" id="L2382"><a class="line-no" href="#L2382">2382</a>                sampled_token_ids[req_index] if sampled_token_ids else []</span>
+<span class="source-line" id="L2383"><a class="line-no" href="#L2383">2383</a>            )</span>
+<span class="source-line" id="L2384"><a class="line-no" href="#L2384">2384</a></span>
+<span class="source-line" id="L2385"><a class="line-no" href="#L2385">2385</a>            scheduled_spec_token_ids = (</span>
+<span class="source-line" id="L2386"><a class="line-no" href="#L2386">2386</a>                scheduler_output.scheduled_spec_decode_tokens.get(req_id)</span>
+<span class="source-line" id="L2387"><a class="line-no" href="#L2387">2387</a>            )</span>
+<span class="source-line" id="L2388"><a class="line-no" href="#L2388">2388</a>            if scheduled_spec_token_ids and (</span>
+<span class="source-line" id="L2389"><a class="line-no" href="#L2389">2389</a>                generated_token_ids or self.num_sampled_tokens_per_step == 0</span>
+<span class="source-line" id="L2390"><a class="line-no" href="#L2390">2390</a>            ):</span>
+<span class="source-line" id="L2391"><a class="line-no" href="#L2391">2391</a>                num_draft_tokens = len(scheduled_spec_token_ids)</span>
+<span class="source-line" id="L2392"><a class="line-no" href="#L2392">2392</a>                num_sampled = self.num_sampled_tokens_per_step</span>
+<span class="source-line" id="L2393"><a class="line-no" href="#L2393">2393</a>                num_accepted = max(len(generated_token_ids) - num_sampled, 0)</span>
+<span class="source-line" id="L2394"><a class="line-no" href="#L2394">2394</a>                num_rejected = num_draft_tokens - num_accepted</span>
+<span class="source-line" id="L2395"><a class="line-no" href="#L2395">2395</a>                # Rejections roll back num_computed_tokens (and, under async</span>
+<span class="source-line" id="L2396"><a class="line-no" href="#L2396">2396</a>                # scheduling, num_output_placeholders, which covers the spec</span>
+<span class="source-line" id="L2397"><a class="line-no" href="#L2397">2397</a>                # tokens). A stale rejection count predates the preemption</span>
+<span class="source-line" id="L2398"><a class="line-no" href="#L2398">2398</a>                # rollback and must not apply.</span>
+<span class="source-line" id="L2399"><a class="line-no" href="#L2399">2399</a>                if not output_is_stale:</span>
+<span class="source-line" id="L2400"><a class="line-no" href="#L2400">2400</a>                    if request.num_computed_tokens &gt; 0:</span>
+<span class="source-line" id="L2401"><a class="line-no" href="#L2401">2401</a>                        request.num_computed_tokens -= num_rejected</span>
+<span class="source-line" id="L2402"><a class="line-no" href="#L2402">2402</a>                    if request.num_output_placeholders &gt; 0:</span>
+<span class="source-line" id="L2403"><a class="line-no" href="#L2403">2403</a>                        request.num_output_placeholders -= num_rejected</span>
+<span class="source-line" id="L2404"><a class="line-no" href="#L2404">2404</a>                spec_decoding_stats = self.make_spec_decoding_stats(</span>
+<span class="source-line" id="L2405"><a class="line-no" href="#L2405">2405</a>                    spec_decoding_stats,</span>
+<span class="source-line" id="L2406"><a class="line-no" href="#L2406">2406</a>                    num_draft_tokens=num_draft_tokens,</span>
+<span class="source-line" id="L2407"><a class="line-no" href="#L2407">2407</a>                    num_accepted_tokens=num_accepted,</span>
+<span class="source-line" id="L2408"><a class="line-no" href="#L2408">2408</a>                    num_invalid_spec_tokens=scheduler_output.num_invalid_spec_tokens,</span>
+<span class="source-line" id="L2409"><a class="line-no" href="#L2409">2409</a>                    request_id=req_id,</span>
+<span class="source-line" id="L2410"><a class="line-no" href="#L2410">2410</a>                )</span>
+<span class="source-line" id="L2411"><a class="line-no" href="#L2411">2411</a>                if request.spec_decode_metrics is not None:</span>
+<span class="source-line" id="L2412"><a class="line-no" href="#L2412">2412</a>                    # Exclude grammar-invalidated drafts from the proposed</span>
+<span class="source-line" id="L2413"><a class="line-no" href="#L2413">2413</a>                    # count, mirroring make_spec_decoding_stats; the accepted</span>
+<span class="source-line" id="L2414"><a class="line-no" href="#L2414">2414</a>                    # bucket (j) is unaffected.</span>
+<span class="source-line" id="L2415"><a class="line-no" href="#L2415">2415</a>                    adj_draft_tokens = num_draft_tokens</span>
+<span class="source-line" id="L2416"><a class="line-no" href="#L2416">2416</a>                    if scheduler_output.num_invalid_spec_tokens:</span>
+<span class="source-line" id="L2417"><a class="line-no" href="#L2417">2417</a>                        adj_draft_tokens -= (</span>
+<span class="source-line" id="L2418"><a class="line-no" href="#L2418">2418</a>                            scheduler_output.num_invalid_spec_tokens.get(req_id, 0)</span>
+<span class="source-line" id="L2419"><a class="line-no" href="#L2419">2419</a>                        )</span>
+<span class="source-line" id="L2420"><a class="line-no" href="#L2420">2420</a>                    request.spec_decode_metrics.observe(</span>
+<span class="source-line" id="L2421"><a class="line-no" href="#L2421">2421</a>                        num_draft_tokens=adj_draft_tokens,</span>
+<span class="source-line" id="L2422"><a class="line-no" href="#L2422">2422</a>                        num_accepted=num_accepted,</span>
+<span class="source-line" id="L2423"><a class="line-no" href="#L2423">2423</a>                        detailed=self.spec_decode_metrics_level == &quot;detailed&quot;,</span>
+<span class="source-line" id="L2424"><a class="line-no" href="#L2424">2424</a>                    )</span>
+<span class="source-line" id="L2425"><a class="line-no" href="#L2425">2425</a></span>
+<span class="source-line" id="L2426"><a class="line-no" href="#L2426">2426</a>            # Free encoder inputs only after the step has actually executed.</span>
+<span class="source-line" id="L2427"><a class="line-no" href="#L2427">2427</a>            if request.has_encoder_inputs:</span>
+<span class="source-line" id="L2428"><a class="line-no" href="#L2428">2428</a>                self._free_encoder_inputs(request)</span>
+<span class="source-line" id="L2429"><a class="line-no" href="#L2429">2429</a></span>
+<span class="source-line" id="L2430"><a class="line-no" href="#L2430">2430</a>            stopped = False</span>
+<span class="source-line" id="L2431"><a class="line-no" href="#L2431">2431</a>            new_logprobs = None</span>
+<span class="source-line" id="L2432"><a class="line-no" href="#L2432">2432</a>            new_sampling_mask = None</span>
+<span class="source-line" id="L2433"><a class="line-no" href="#L2433">2433</a>            new_token_ids = generated_token_ids</span>
+<span class="source-line" id="L2434"><a class="line-no" href="#L2434">2434</a>            pooler_output = pooler_outputs[req_index] if pooler_outputs else None</span>
+<span class="source-line" id="L2435"><a class="line-no" href="#L2435">2435</a>            kv_transfer_params = None</span>
+<span class="source-line" id="L2436"><a class="line-no" href="#L2436">2436</a>            ec_transfer_params = None</span>
+<span class="source-line" id="L2437"><a class="line-no" href="#L2437">2437</a>            prefill_stats = None</span>
+<span class="source-line" id="L2438"><a class="line-no" href="#L2438">2438</a>            watermarking = None</span>
+<span class="source-line" id="L2439"><a class="line-no" href="#L2439">2439</a>            status_before_stop = request.status</span>
+<span class="source-line" id="L2440"><a class="line-no" href="#L2440">2440</a></span>
+<span class="source-line" id="L2441"><a class="line-no" href="#L2441">2441</a>            # Check for stop and update request status.</span>
+<span class="source-line" id="L2442"><a class="line-no" href="#L2442">2442</a>            if new_token_ids:</span>
+<span class="source-line" id="L2443"><a class="line-no" href="#L2443">2443</a>                has_output_placeholders = request.num_output_placeholders &gt; 0</span>
+<span class="source-line" id="L2444"><a class="line-no" href="#L2444">2444</a>                new_token_ids, stopped = self._update_request_with_output(</span>
+<span class="source-line" id="L2445"><a class="line-no" href="#L2445">2445</a>                    request, new_token_ids, is_stale=output_is_stale</span>
+<span class="source-line" id="L2446"><a class="line-no" href="#L2446">2446</a>                )</span>
+<span class="source-line" id="L2447"><a class="line-no" href="#L2447">2447</a>                if (</span>
+<span class="source-line" id="L2448"><a class="line-no" href="#L2448">2448</a>                    not output_is_stale</span>
+<span class="source-line" id="L2449"><a class="line-no" href="#L2449">2449</a>                    and status_before_stop == RequestStatus.RUNNING</span>
+<span class="source-line" id="L2450"><a class="line-no" href="#L2450">2450</a>                    and (has_output_placeholders or self.num_spec_tokens &gt; 0)</span>
+<span class="source-line" id="L2451"><a class="line-no" href="#L2451">2451</a>                ):</span>
+<span class="source-line" id="L2452"><a class="line-no" href="#L2452">2452</a>                    self.kv_cache_manager.cache_blocks(</span>
+<span class="source-line" id="L2453"><a class="line-no" href="#L2453">2453</a>                        request,</span>
+<span class="source-line" id="L2454"><a class="line-no" href="#L2454">2454</a>                        request.num_computed_tokens - request.num_in_flight_tokens,</span>
+<span class="source-line" id="L2455"><a class="line-no" href="#L2455">2455</a>                    )</span>
+<span class="source-line" id="L2456"><a class="line-no" href="#L2456">2456</a>            elif request.pooling_params and pooler_output is not None:</span>
+<span class="source-line" id="L2457"><a class="line-no" href="#L2457">2457</a>                # Pooling stops as soon as there is output.</span>
+<span class="source-line" id="L2458"><a class="line-no" href="#L2458">2458</a>                request.status = RequestStatus.FINISHED_STOPPED</span></code></pre></main></body></html>

@@ -1,0 +1,18 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>课程使用与本地运行</title><link rel="stylesheet" href="../assets/course.css?v=2"><link rel="stylesheet" href="../assets/deep-dive.css"></head><body><main class="page"><nav class="lesson-nav"><a href="../index.html">← 课程首页</a></nav><h1>课程使用与本地运行</h1><p class="dek">32节中文课程，覆盖Transformer、nano-vllm、vLLM与DeepInfer。46张图解、交互算例与可本地运行的实验，把公式、张量形状和真实源码连起来。</p>
+<h2>在线学习</h2><p>从<a href="../lessons/0015-transformer-tensor-contract.html">第15课</a>补齐Transformer基础，配合<a href="dimension-walkthrough.html">逐元素维度图解</a>；再按首页路线阅读推理框架。浏览器中的练习和自评无需账号，记录仅保存在当前浏览器，不会上传服务器。</p>
+<h2>下载完整课程</h2><p><a href="https://github.com/Diomchen/Diomchen.github.io/archive/refs/heads/main.zip">下载整个课程ZIP</a>，或使用Git：</p><pre><code>git clone https://github.com/Diomchen/Diomchen.github.io.git ~/vllm-learn
+cd ~/vllm-learn
+python3 labs/dimension_lab.py
+python3 labs/scheduler_sim.py</code></pre><p>这两个实验只用Python标准库。scheduler与GPU报告生成还依赖assets目录，因此应下载完整课程，不能只下载单独的.py文件。</p>
+<h2>本地浏览</h2><p>直接打开index.html即可；也可以在课程根目录运行：</p><pre><code>python3 -m http.server 8000</code></pre><p>浏览器访问 http://localhost:8000 。CPU数值实验需要NumPy；GPU实验另需适配设备的CUDA PyTorch。具体命令见<a href="local-labs.html">本地实验台</a>和<a href="../labs/LOCAL-LABS.md">实验手册</a>。</p>
+<h2 id="sources">需要完整源码时：获取课程固定提交</h2><p>在线摘录已包含关键行，完整上游仓库未打包到网站。按需选择下面相应仓库；命令在课程根目录执行，目标目录应尚不存在。完整克隆可能较大，仅读在线摘录无需执行。</p><pre><code>mkdir -p vendor
+git clone https://github.com/GeeeekExplorer/nano-vllm.git vendor/nano-vllm
+git -C vendor/nano-vllm checkout --detach bb823b3e06983d71485a8e1f23715ebd87d98ef8
+git clone https://github.com/vllm-project/vllm.git vendor/vllm
+git -C vendor/vllm checkout --detach ef9339e64d458b10ab49b2c9af35645eff6388fd
+git clone https://github.com/deepseek-ai/DeepInfer.git vendor/deepinfer
+git -C vendor/deepinfer checkout --detach a679bb86ce36e883a98a97733492b686e5b9a08e
+</code></pre>
+<p>vendor目录按Git忽略规则留在本地。源码版本与行号以<a href="source-map.html">证据索引</a>为准；课程没有声称这些是最新版。</p>
+<h2>实验与验证边界</h2><p>课程参考硬件是RTX4070 Ti 12GB、64GB内存和WSL Ubuntu。标准库模拟和CPU数值实验已验证；GPU合成实验脚本已提供，尚无实测性能结论。DeepInfer部分围绕固定源码阅读和CPU算例展开，不能将模拟结果当成真实引擎吞吐。</p>
+<h2>反馈与归属</h2><p>发现问题可到<a href="https://github.com/Diomchen/Diomchen.github.io/issues">GitHub Issues</a>提供课程编号、公式或源码位置和复现步骤。第三方代码的版权和许可证见<a href="attribution.html">归属说明</a>。</p></main></body></html>

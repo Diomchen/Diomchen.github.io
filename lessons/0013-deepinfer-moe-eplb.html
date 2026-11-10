@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>13 · MoE 与 EPLB</title>
+<link rel="stylesheet" href="../assets/course.css?v=2">
+</head>
+<body>
+<div class="page">
+
+<nav class="lesson-nav">
+  <a href="0012-deepinfer-overview.html">← 12 DeepInfer 总览</a>
+  <a class="home" href="../index.html">课程索引</a>
+  <a class="right" href="0014-dspark-batch-invariance.html">14 DSpark 与确定性 →</a>
+</nav>
+
+<header>
+  <p class="kicker">课程 13 · 专家并行</p>
+  <h1>当 8 个专家里 3 个被挤爆</h1>
+  <p class="dek">MoE 的并行不是「把权重切开」那么简单：token 会往少数热门专家涌，热门专家所在的卡就变成瓶颈。EPLB 就是给这个问题做的动态再平衡——140 行代码，一个可优化目标。</p>
+  <p class="meta">
+    <span>约 55 分钟</span>
+    <span>源码：<code>model_executor/eplb/policy.py</code>（140 行）</span>
+    <span>前置：05、12</span>
+  </p>
+</header><div class="aside"><span class="label">2026-11-08 源码校正</span><p>本页已按本地固定commit修正相关描述。<a href="../reference/framework-map.html">三框架对照</a> · <a href="../reference/source-map.html">带行号的离线证据</a> · <a href="../docs/research/framework-deep-dive-2026-11-08.md">核查与勘误详情</a>。</p></div>
+
+<h2><span class="num">1</span>MoE 的并行方式：EP</h2>
+
+<p>MoE 层里有一组「专家」（expert），每个 token 经 router 选出 top-k 个专家，只经过这几个专家的计算。专家并行（EP）就是<strong>把专家分到不同的卡上</strong>：</p>
+
+<pre><code>rank 0: experts 0,1,2,3      rank 1: experts 4,5,6,7
+        ↑                            ↑
+   本地 token 直接算          需要把 token 发过去（all-to-all）
+
+实际每个rank有capacity个物理专家槽位，可能容纳多个专家：
+  dispatch（发出去）→ 专家本地计算 → combine（收回来）</code></pre>
+
+<p>和 TP 的区别很关键：</p>
+
+<table>
+  <thead><tr><th></th><th>TP</th><th>EP</th></tr></thead>
+  <tbody>
+    <tr><td>切什么</td><td>每层权重矩阵</td><td>专家（一整个子网络）</td></tr>
+    <tr><td>通信</td><td>all-reduce（每次前向、每层）</td><td>all-to-all（每个 MoE 层、按 token 路由）</td></tr>
+    <tr><td>通信量取决于</td><td>激活值大小</td><td><strong>路由结果</strong>——热门专家会让某几张卡收到远超平均的 token</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">2</span>问题：负载不均</h2>
+
+<p>假设 64 个专家分布在 8 张卡上，每卡 8 个。如果 router 在某批请求里把 40% 的 token 都路由到专家 7，那么：</p>
+
+<ul>
+  <li>持有专家 7 的那张卡，收到的 token 是别人的 5 倍；</li>
+  <li>它的计算时间决定了整个 MoE 层的完成时间；</li>
+  <li>其余 7 张卡算完后<strong>空等</strong>。</li>
+</ul>
+
+<p>训练时的经典解法是 <strong>auxiliary loss</strong>（惩罚路由不均），但推理时你改不了权重。推理侧的解法是：<strong>给热门专家多放几个副本</strong>，再把副本均匀摊到各卡上——这就是 EPLB（Expert Parallel Load Balancer）。</p>
+
+<h2><span class="num">3</span>三个术语</h2>
+
+<p><code>policy.py</code> 开头就把术语定义清楚了[<a href="https://github.com/deepseek-ai/DeepInfer/blob/a679bb8/deepinfer/model_executor/eplb/policy.py#L1-L7">policy.py L1–7</a>]：</p>
+
+<blockquote>
+<p><strong>logical expert</strong>：模型定义的专家，共 <code>num_logical</code> 个。<br>
+<strong>physical expert</strong>：GPU 上实际放置的副本，共 <code>num_logical + num_redundant</code> 个。</p>
+</blockquote>
+
+<p>于是有两张映射表：</p>
+
+<ul>
+  <li><code>physical_to_logical_map</code>：每个物理槽位放的是哪个逻辑专家。</li>
+  <li><code>logical_to_physical_map</code>：每个逻辑专家有哪些副本（无效位填 -1）。</li>
+</ul>
+
+<h2><span class="num">4</span>算法：两步贪心</h2>
+
+<p><code>rebalance_experts_global()</code>[<a href="https://github.com/deepseek-ai/DeepInfer/blob/a679bb8/deepinfer/model_executor/eplb/policy.py#L73">L73</a>] 做两件事。</p>
+
+<h3>第一步：决定给谁加副本</h3>
+
+<pre><code><span class="file">policy.py · L109–123</span>for i in range(num_redundant_experts):
+    score = tokens_per_expert_all_diff / logical_count       <span class="cm"># 每个专家当前的「每副本负载」</span>
+    score_added = tokens_per_expert / (logical_count + 1)    <span class="cm"># 加一个副本后的负载</span>
+    values, indices = score.max(-1, keepdim=True)            <span class="cm"># 当前最热的专家</span>
+    ...
+    redundancy_indices = values.sum(0).argmin(-1)            <span class="cm"># 谁加副本后，峰值负载降得最多</span>
+    physical_index = num_logical_experts + i
+    physical_to_logical_map[:, physical_index] = redundancy_indices</code></pre>
+
+<p>直觉：每次挑「加上一个副本后，全局最坏情况改善最多」的那个专家。注意 <code>values.sum(0)</code>——它对<strong>多个历史 step</strong> 求和，而不是只看当前，避免为一次突发流量做长期错误的决定。</p>
+
+<h3>第二步：把副本摊到各张卡</h3>
+
+<pre><code><span class="file">policy.py · L43–45</span><span class="cm"># 目标：使 sum_{step i} max_{rank j} (sum_{expert e 分到 rank j} e 在 step i 的负载) 尽量小</span>
+<span class="cm"># 贪心：每次把当前 expert 放到「让历史各 step 的最大 rank 负载之和最小」的 rank 上</span></code></pre>
+
+<p>这是一个<strong>最小化峰值</strong>的目标：不是让平均负载均衡，而是让<strong>最忙的那张卡尽量不忙</strong>。因为整层的完成时间由最忙的卡决定。</p>
+
+<pre><code><span class="file">policy.py · L57–66</span>torch.add(loads, vector.unsqueeze(1), out=candidates)
+torch.maximum(candidates, peaks.unsqueeze(1), out=candidates)   <span class="cm"># 各历史 step 的 rank 最大负载</span>
+torch.sum(candidates, dim=-1, out=scores)
+scores.masked_fill_(occupancy == capacity, float("inf"))        <span class="cm"># 已满的 rank 排除</span>
+rank = scores.argmin(dim=-1)
+indices[layers, rank * capacity + occupied] = physical_order[:, job_index]</code></pre>
+
+<p>实现有遍历num_physical的Python循环，循环内对layers/ranks/history steps做张量计算；每次尝试未满rank，最小化历史峰值和。贪心不保证全局最优。</p>
+
+<h2><span class="num">5</span>代价：再平衡不是免费的</h2>
+
+<ul>
+  <li><strong>搬权重</strong>：专家换了位置，对应的权重分片要在卡之间传输（几十到几百 MB）。</li>
+  <li><strong>统计通信</strong>：聚合专家token统计，并同步新的映射和副本数。</li>
+  <li><strong>同步成本</strong>：权重搬运和映射切换影响迭代时间；不能从此推断服务必暂停接收请求。</li>
+</ul>
+
+<p>EPLB运行时按rearrangement interval和prefill相关配置触发；此提交的触发函数没有负载偏斜阈值判断。触发策略与实际weight shuffle见<a href="../reference/source/deepinfer-eplb-trigger.html">触发源码</a>。</p>
+
+<div class="key">
+  <span class="label">一句话总结</span>
+  <p>EP 把专家分散到卡上，但路由是数据决定的、天然不均；EPLB 用「冗余副本 + 峰值最小化贪心」把这个不均抹平，代价是周期性的权重搬运。</p>
+</div>
+
+<h2><span class="num">6</span>练习 A · 手算一次副本分配</h2>
+
+<p>4 个逻辑专家、2 个冗余副本，3 个历史 step 的 token 数（每个专家）：</p>
+
+<table>
+  <thead><tr><th></th><th>E0</th><th>E1</th><th>E2</th><th>E3</th></tr></thead>
+  <tbody>
+    <tr><td>step 1</td><td>100</td><td>10</td><td>10</td><td>10</td></tr>
+    <tr><td>step 2</td><td>100</td><td>10</td><td>10</td><td>10</td></tr>
+    <tr><td>step 3</td><td>100</td><td>10</td><td>10</td><td>10</td></tr>
+  </tbody>
+</table>
+
+<p>第一个冗余副本应该给谁？第二个呢？</p>
+
+<details>
+  <summary>展开：答案</summary>
+  <p>初始每专家 1 个副本：每副本负载 E0=100、其余=10。</p>
+  <p>给 E0 加副本后：E0 每副本 50，全局峰值从 100 降到 50，改善最大 → <strong>第一份给 E0</strong>。</p>
+  <p>此时 E0 两个副本各 50，仍是最热。再给 E0 加第三个副本会变成 33，但也许该给 E1？取决于配额——若只剩一个冗余且目标是峰值最小，仍然给 E0（100/3≈33 &lt; 50）。所以<strong>第二个还是 E0</strong>。</p>
+  <p>这说明一个反直觉的结论：<strong>冗余不是平均分配的</strong>，热门专家可以占多个副本，直到它的每副本负载接近次热门。</p>
+</details>
+
+<h2><span class="num">7</span>练习 B · 闭卷测验</h2>
+
+<div class="quiz" data-quiz="eplb"></div>
+
+<h2><span class="num">8</span>面试复述卡</h2>
+
+<p><strong>「MoE 推理的负载不均怎么解？」</strong></p>
+
+<details>
+  <summary>展开：30 秒版本</summary>
+  <p>「推理时改不了路由权重，所以用专家并行的冗余副本：统计每个专家在一段时间内的 token 数，给最热的专家多放几个副本，再把所有副本按『让最忙的卡尽量不忙』的目标贪心摊到各卡上。代价是再平衡要搬权重，所以按interval与prefill配置触发。DeepInfer 的 EPLB 就是这套，策略含逐物理专家循环，内部采用张量计算。」</p>
+</details>
+
+<div class="ask-teacher">
+  <p><strong>可以问</strong>：「如果 router 本身有 bug，导致所有 token 都去同一个专家呢？」——EPLB 能缓解但不能根治，这类问题要回训练侧看负载均衡 loss。</p>
+</div>
+
+<footer class="lesson-footer">
+  <h3>主源与延伸</h3>
+  <ul>
+    <li><strong>主源（必读）</strong>：<code>model_executor/eplb/policy.py</code> 全文 140 行，注释写得很清楚。</li>
+    <li>配套：<code>eplb/shuffle.py</code>（如何按新布局搬运权重）。</li>
+    <li>延伸：DeepEP 的 all-to-all 实现（<code>vendor/DeepEP</code>）。</li>
+    <li>术语：<a href="../reference/glossary.html#compute">Tensor Parallelism</a>。</li>
+    <li>下一课：<strong>14 · DSpark 与确定性推理</strong>——置信度头如何决定验证多少 token，以及为什么「同样的输入必须给同样的输出」是个难题。</li>
+  </ul>
+</footer>
+
+</div>
+<script src="../assets/quiz.js?v=2"></script>
+<script>
+CourseQuiz.mount('[data-quiz="eplb"]', {
+  questions: [
+    {
+      q: 'EPLB 里 logical expert 与 physical expert 的关系是：',
+      options: [
+        'physical 含冗余副本，数量更多',
+        'logical 是 physical 的副本',
+        '两者数量必须相等',
+        'physical 只在训练时存在'
+      ],
+      answer: 0,
+      why: ' physical = logical + redundant；冗余副本让热门专家可以同时在多张卡上服务。'
+    },
+    {
+      q: 'EPLB 第二步贪心的优化目标是：',
+      options: [
+        '最小化各 step 的最大 rank 负载之和',
+        '最大化每张卡的专家数量',
+        '最小化专家之间的通信量',
+        '让每张卡的显存占用一致'
+      ],
+      answer: 0,
+      why: ' 整层完成时间由最忙的卡决定，所以目标是压峰值而不是压平均。'
+    },
+    {
+      q: '再平衡不能做得太频繁，主要因为：',
+      options: [
+        '搬专家权重代价高且影响服务',
+        '统计 token 数需要很久',
+        'GPU 不支持动态显存分配',
+        '副本数量会指数增长'
+      ],
+      answer: 0,
+      why: ' 专家换位置要搬几十到几百 MB 的权重，还需要统计通信与同步，此提交按interval与prefill配置触发。'
+    },
+    {
+      q: 'EP 与 TP 在通信上的本质区别是：',
+      options: [
+        'EP 是 routed 的 all-to-all',
+        'EP 完全不需要通信',
+        'TP 只在层边界通信',
+        'TP 通信量固定不变'
+      ],
+      answer: 0,
+      why: ' EP 每个 MoE 层按路由结果做 all-to-all，通信量由 token 去向决定，因此对负载不均极其敏感。'
+    },
+    {
+      q: '副本分配为什么可能把多个副本都给同一个专家？',
+      options: [
+        '直到它的每副本负载接近次热门',
+        '因为冗余槽位必须用完',
+        '副本数量由专家 ID 决定',
+        '为了避免权重搬运'
+      ],
+      answer: 0,
+      why: ' 目标是压峰值；只要该专家仍是瓶颈，继续给它加副本的收益就大于给别人。'
+    }
+  ]
+});
+</script>
+<script src="../assets/highlight.js?v=2"></script>
+<script src="../assets/lesson-ui.js?v=2"></script>
+</body>
+</html>

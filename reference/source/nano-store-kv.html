@@ -1,0 +1,30 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>nano-store-kv</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>nano-store-kv</h1><p class="source-note">nano-vllm/nanovllm/layers/attention.py · bb823b3 · L11–40 · <a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/layers/attention.py#L11-L40">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>nano-vllm · MIT</strong><p>Copyright (c) 2025 Xingkai Yu。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/nano-vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L11"><a class="line-no" href="#L11">11</a>def store_kvcache_kernel(</span>
+<span class="source-line" id="L12"><a class="line-no" href="#L12">12</a>    key_ptr,</span>
+<span class="source-line" id="L13"><a class="line-no" href="#L13">13</a>    key_stride,</span>
+<span class="source-line" id="L14"><a class="line-no" href="#L14">14</a>    value_ptr,</span>
+<span class="source-line" id="L15"><a class="line-no" href="#L15">15</a>    value_stride,</span>
+<span class="source-line" id="L16"><a class="line-no" href="#L16">16</a>    k_cache_ptr,</span>
+<span class="source-line" id="L17"><a class="line-no" href="#L17">17</a>    v_cache_ptr,</span>
+<span class="source-line" id="L18"><a class="line-no" href="#L18">18</a>    slot_mapping_ptr,</span>
+<span class="source-line" id="L19"><a class="line-no" href="#L19">19</a>    D: tl.constexpr,</span>
+<span class="source-line" id="L20"><a class="line-no" href="#L20">20</a>):</span>
+<span class="source-line" id="L21"><a class="line-no" href="#L21">21</a>    idx = tl.program_id(0)</span>
+<span class="source-line" id="L22"><a class="line-no" href="#L22">22</a>    slot = tl.load(slot_mapping_ptr + idx)</span>
+<span class="source-line" id="L23"><a class="line-no" href="#L23">23</a>    if slot == -1: return</span>
+<span class="source-line" id="L24"><a class="line-no" href="#L24">24</a>    key_offsets = idx * key_stride + tl.arange(0, D)</span>
+<span class="source-line" id="L25"><a class="line-no" href="#L25">25</a>    value_offsets = idx * value_stride + tl.arange(0, D)</span>
+<span class="source-line" id="L26"><a class="line-no" href="#L26">26</a>    key = tl.load(key_ptr + key_offsets)</span>
+<span class="source-line" id="L27"><a class="line-no" href="#L27">27</a>    value = tl.load(value_ptr + value_offsets)</span>
+<span class="source-line" id="L28"><a class="line-no" href="#L28">28</a>    cache_offsets = slot * D + tl.arange(0, D)</span>
+<span class="source-line" id="L29"><a class="line-no" href="#L29">29</a>    tl.store(k_cache_ptr + cache_offsets, key)</span>
+<span class="source-line" id="L30"><a class="line-no" href="#L30">30</a>    tl.store(v_cache_ptr + cache_offsets, value)</span>
+<span class="source-line" id="L31"><a class="line-no" href="#L31">31</a></span>
+<span class="source-line" id="L32"><a class="line-no" href="#L32">32</a></span>
+<span class="source-line" id="L33"><a class="line-no" href="#L33">33</a>def store_kvcache(key: torch.Tensor, value: torch.Tensor, k_cache: torch.Tensor, v_cache: torch.Tensor, slot_mapping: torch.Tensor):</span>
+<span class="source-line" id="L34"><a class="line-no" href="#L34">34</a>    N, num_heads, head_dim = key.shape</span>
+<span class="source-line" id="L35"><a class="line-no" href="#L35">35</a>    D = num_heads * head_dim</span>
+<span class="source-line" id="L36"><a class="line-no" href="#L36">36</a>    assert key.stride(-1) == 1 and value.stride(-1) == 1</span>
+<span class="source-line" id="L37"><a class="line-no" href="#L37">37</a>    assert key.stride(1) == head_dim and value.stride(1) == head_dim</span>
+<span class="source-line" id="L38"><a class="line-no" href="#L38">38</a>    assert k_cache.stride(1) == D and v_cache.stride(1) == D</span>
+<span class="source-line" id="L39"><a class="line-no" href="#L39">39</a>    assert slot_mapping.numel() == N</span>
+<span class="source-line" id="L40"><a class="line-no" href="#L40">40</a>    store_kvcache_kernel[(N,)](key, key.stride(0), value, value.stride(0), k_cache, v_cache, slot_mapping, D)</span></code></pre></main></body></html>

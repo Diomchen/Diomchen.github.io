@@ -1,0 +1,68 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>nano-scheduler</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>nano-scheduler</h1><p class="source-note">nano-vllm/nanovllm/engine/scheduler.py · bb823b3 · L25–92 · <a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/engine/scheduler.py#L25-L92">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>nano-vllm · MIT</strong><p>Copyright (c) 2025 Xingkai Yu。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/nano-vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L25"><a class="line-no" href="#L25">25</a>    def schedule(self) -&gt; tuple[list[Sequence], bool]:</span>
+<span class="source-line" id="L26"><a class="line-no" href="#L26">26</a>        scheduled_seqs = []</span>
+<span class="source-line" id="L27"><a class="line-no" href="#L27">27</a>        num_batched_tokens = 0</span>
+<span class="source-line" id="L28"><a class="line-no" href="#L28">28</a></span>
+<span class="source-line" id="L29"><a class="line-no" href="#L29">29</a>        # prefill</span>
+<span class="source-line" id="L30"><a class="line-no" href="#L30">30</a>        while self.waiting and len(scheduled_seqs) &lt; self.max_num_seqs:</span>
+<span class="source-line" id="L31"><a class="line-no" href="#L31">31</a>            seq = self.waiting[0]</span>
+<span class="source-line" id="L32"><a class="line-no" href="#L32">32</a>            remaining = self.max_num_batched_tokens - num_batched_tokens</span>
+<span class="source-line" id="L33"><a class="line-no" href="#L33">33</a>            if remaining == 0:</span>
+<span class="source-line" id="L34"><a class="line-no" href="#L34">34</a>                break</span>
+<span class="source-line" id="L35"><a class="line-no" href="#L35">35</a>            if not seq.block_table:</span>
+<span class="source-line" id="L36"><a class="line-no" href="#L36">36</a>                num_cached_blocks = self.block_manager.can_allocate(seq)</span>
+<span class="source-line" id="L37"><a class="line-no" href="#L37">37</a>                if num_cached_blocks == -1:</span>
+<span class="source-line" id="L38"><a class="line-no" href="#L38">38</a>                    break</span>
+<span class="source-line" id="L39"><a class="line-no" href="#L39">39</a>                num_tokens = seq.num_tokens - num_cached_blocks * self.block_size</span>
+<span class="source-line" id="L40"><a class="line-no" href="#L40">40</a>            else:</span>
+<span class="source-line" id="L41"><a class="line-no" href="#L41">41</a>                num_tokens = seq.num_tokens - seq.num_cached_tokens</span>
+<span class="source-line" id="L42"><a class="line-no" href="#L42">42</a>            if remaining &lt; num_tokens and scheduled_seqs:  # only allow chunked prefill for the first seq</span>
+<span class="source-line" id="L43"><a class="line-no" href="#L43">43</a>                break</span>
+<span class="source-line" id="L44"><a class="line-no" href="#L44">44</a>            if not seq.block_table:</span>
+<span class="source-line" id="L45"><a class="line-no" href="#L45">45</a>                self.block_manager.allocate(seq, num_cached_blocks)</span>
+<span class="source-line" id="L46"><a class="line-no" href="#L46">46</a>            seq.num_scheduled_tokens = min(num_tokens, remaining)</span>
+<span class="source-line" id="L47"><a class="line-no" href="#L47">47</a>            num_batched_tokens += seq.num_scheduled_tokens</span>
+<span class="source-line" id="L48"><a class="line-no" href="#L48">48</a>            if seq.num_cached_tokens + seq.num_scheduled_tokens == seq.num_tokens:</span>
+<span class="source-line" id="L49"><a class="line-no" href="#L49">49</a>                seq.status = SequenceStatus.RUNNING</span>
+<span class="source-line" id="L50"><a class="line-no" href="#L50">50</a>                self.waiting.popleft()</span>
+<span class="source-line" id="L51"><a class="line-no" href="#L51">51</a>                self.running.append(seq)</span>
+<span class="source-line" id="L52"><a class="line-no" href="#L52">52</a>            scheduled_seqs.append(seq)</span>
+<span class="source-line" id="L53"><a class="line-no" href="#L53">53</a></span>
+<span class="source-line" id="L54"><a class="line-no" href="#L54">54</a>        if scheduled_seqs:</span>
+<span class="source-line" id="L55"><a class="line-no" href="#L55">55</a>            return scheduled_seqs, True</span>
+<span class="source-line" id="L56"><a class="line-no" href="#L56">56</a></span>
+<span class="source-line" id="L57"><a class="line-no" href="#L57">57</a>        # decode</span>
+<span class="source-line" id="L58"><a class="line-no" href="#L58">58</a>        while self.running and len(scheduled_seqs) &lt; self.max_num_seqs:</span>
+<span class="source-line" id="L59"><a class="line-no" href="#L59">59</a>            seq = self.running.popleft()</span>
+<span class="source-line" id="L60"><a class="line-no" href="#L60">60</a>            while not self.block_manager.can_append(seq):</span>
+<span class="source-line" id="L61"><a class="line-no" href="#L61">61</a>                if self.running:</span>
+<span class="source-line" id="L62"><a class="line-no" href="#L62">62</a>                    self.preempt(self.running.pop())</span>
+<span class="source-line" id="L63"><a class="line-no" href="#L63">63</a>                else:</span>
+<span class="source-line" id="L64"><a class="line-no" href="#L64">64</a>                    self.preempt(seq)</span>
+<span class="source-line" id="L65"><a class="line-no" href="#L65">65</a>                    break</span>
+<span class="source-line" id="L66"><a class="line-no" href="#L66">66</a>            else:</span>
+<span class="source-line" id="L67"><a class="line-no" href="#L67">67</a>                seq.num_scheduled_tokens = 1</span>
+<span class="source-line" id="L68"><a class="line-no" href="#L68">68</a>                seq.is_prefill = False</span>
+<span class="source-line" id="L69"><a class="line-no" href="#L69">69</a>                self.block_manager.may_append(seq)</span>
+<span class="source-line" id="L70"><a class="line-no" href="#L70">70</a>                scheduled_seqs.append(seq)</span>
+<span class="source-line" id="L71"><a class="line-no" href="#L71">71</a>        assert scheduled_seqs</span>
+<span class="source-line" id="L72"><a class="line-no" href="#L72">72</a>        self.running.extendleft(reversed(scheduled_seqs))</span>
+<span class="source-line" id="L73"><a class="line-no" href="#L73">73</a>        return scheduled_seqs, False</span>
+<span class="source-line" id="L74"><a class="line-no" href="#L74">74</a></span>
+<span class="source-line" id="L75"><a class="line-no" href="#L75">75</a>    def preempt(self, seq: Sequence):</span>
+<span class="source-line" id="L76"><a class="line-no" href="#L76">76</a>        seq.status = SequenceStatus.WAITING</span>
+<span class="source-line" id="L77"><a class="line-no" href="#L77">77</a>        seq.is_prefill = True</span>
+<span class="source-line" id="L78"><a class="line-no" href="#L78">78</a>        self.block_manager.deallocate(seq)</span>
+<span class="source-line" id="L79"><a class="line-no" href="#L79">79</a>        self.waiting.appendleft(seq)</span>
+<span class="source-line" id="L80"><a class="line-no" href="#L80">80</a></span>
+<span class="source-line" id="L81"><a class="line-no" href="#L81">81</a>    def postprocess(self, seqs: list[Sequence], token_ids: list[int], is_prefill: bool):</span>
+<span class="source-line" id="L82"><a class="line-no" href="#L82">82</a>        for seq, token_id in zip(seqs, token_ids):</span>
+<span class="source-line" id="L83"><a class="line-no" href="#L83">83</a>            self.block_manager.hash_blocks(seq)</span>
+<span class="source-line" id="L84"><a class="line-no" href="#L84">84</a>            seq.num_cached_tokens += seq.num_scheduled_tokens</span>
+<span class="source-line" id="L85"><a class="line-no" href="#L85">85</a>            seq.num_scheduled_tokens = 0</span>
+<span class="source-line" id="L86"><a class="line-no" href="#L86">86</a>            if is_prefill and seq.num_cached_tokens &lt; seq.num_tokens:</span>
+<span class="source-line" id="L87"><a class="line-no" href="#L87">87</a>                continue</span>
+<span class="source-line" id="L88"><a class="line-no" href="#L88">88</a>            seq.append_token(token_id)</span>
+<span class="source-line" id="L89"><a class="line-no" href="#L89">89</a>            if (not seq.ignore_eos and token_id == self.eos) or seq.num_completion_tokens == seq.max_tokens:</span>
+<span class="source-line" id="L90"><a class="line-no" href="#L90">90</a>                seq.status = SequenceStatus.FINISHED</span>
+<span class="source-line" id="L91"><a class="line-no" href="#L91">91</a>                self.block_manager.deallocate(seq)</span>
+<span class="source-line" id="L92"><a class="line-no" href="#L92">92</a>                self.running.remove(seq)</span></code></pre></main></body></html>

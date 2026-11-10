@@ -1,0 +1,104 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>deepinfer-decode</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>deepinfer-decode</h1><p class="source-note">deepinfer/csrc/engine/scheduler.hpp · a679bb8 · L556–659 · <a href="https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/csrc/engine/scheduler.hpp#L556-L659">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>deepinfer · Apache-2.0</strong><p>DeepInfer project and its contributors。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/deepinfer/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L556"><a class="line-no" href="#L556">556</a>    /// decode（completion）调度：先把 prompted 队列中的 seq 移入 running，</span>
+<span class="source-line" id="L557"><a class="line-no" href="#L557">557</a>    /// 再按 LCFS 挑选本轮 decode 的 seq，block 不足时抢占 output 最短的 seq。</span>
+<span class="source-line" id="L558"><a class="line-no" href="#L558">558</a>    /// @note 需要在持有 BlockManagerMutexAcquire 的情况下调用。</span>
+<span class="source-line" id="L559"><a class="line-no" href="#L559">559</a>    std::unique_ptr&lt;SchedulerOutputs&gt; _schedule_decode(BlockManagerMutexAcquire &amp;acquire) {</span>
+<span class="source-line" id="L560"><a class="line-no" href="#L560">560</a>        (void)acquire; // 仅作为持锁证明，decode 内部直接使用 *_nolock 接口</span>
+<span class="source-line" id="L561"><a class="line-no" href="#L561">561</a></span>
+<span class="source-line" id="L562"><a class="line-no" href="#L562">562</a>        std::vector&lt;SequencePtr&gt; finished_seqs = free_finished_seqs();</span>
+<span class="source-line" id="L563"><a class="line-no" href="#L563">563</a></span>
+<span class="source-line" id="L564"><a class="line-no" href="#L564">564</a>        // waiting 里已终结的 seq（abort / VE 失败入队）只有调度器能弹出，原本由</span>
+<span class="source-line" id="L565"><a class="line-no" href="#L565">565</a>        // _schedule_prefill 顺手清理。现在 prefill 只在本 rank want=true 时才走到，</span>
+<span class="source-line" id="L566"><a class="line-no" href="#L566">566</a>        // 某 rank 的 waiting 只剩这类 seq 时 want 恒为 false，它们会永远滞留：</span>
+<span class="source-line" id="L567"><a class="line-no" href="#L567">567</a>        // has_unfinished 恒真拖着全组空转，ALL 投票也被这个 rank 永久压死。</span>
+<span class="source-line" id="L568"><a class="line-no" href="#L568">568</a>        // 所以在 decode 分支兜底清理；abort 可命中队列中间，需要扫全队列。</span>
+<span class="source-line" id="L569"><a class="line-no" href="#L569">569</a>        std::vector&lt;SequencePtr&gt; ignored_seqs;</span>
+<span class="source-line" id="L570"><a class="line-no" href="#L570">570</a>        for (auto it = waiting.begin(); it != waiting.end();) {</span>
+<span class="source-line" id="L571"><a class="line-no" href="#L571">571</a>            if ((*it)-&gt;is_finished()) {</span>
+<span class="source-line" id="L572"><a class="line-no" href="#L572">572</a>                ignored_seqs.push_back(std::move(*it));</span>
+<span class="source-line" id="L573"><a class="line-no" href="#L573">573</a>                it = waiting.erase(it);</span>
+<span class="source-line" id="L574"><a class="line-no" href="#L574">574</a>            } else {</span>
+<span class="source-line" id="L575"><a class="line-no" href="#L575">575</a>                ++it;</span>
+<span class="source-line" id="L576"><a class="line-no" href="#L576">576</a>            }</span>
+<span class="source-line" id="L577"><a class="line-no" href="#L577">577</a>        }</span>
+<span class="source-line" id="L578"><a class="line-no" href="#L578">578</a></span>
+<span class="source-line" id="L579"><a class="line-no" href="#L579">579</a>        const size_t max_seqs = max_num_seqs;</span>
+<span class="source-line" id="L580"><a class="line-no" href="#L580">580</a></span>
+<span class="source-line" id="L581"><a class="line-no" href="#L581">581</a>        // prompted 队列头部的 seq 依次转入 running（或已结束的转入 finished），</span>
+<span class="source-line" id="L582"><a class="line-no" href="#L582">582</a>        // forked seq 需要先克隆 state 和最后一个（可能写了一半的）block。</span>
+<span class="source-line" id="L583"><a class="line-no" href="#L583">583</a>        auto admit = [&amp;](SequencePtr &amp;&amp;seq) {</span>
+<span class="source-line" id="L584"><a class="line-no" href="#L584">584</a>            if (seq-&gt;schedule.status == SequenceStatus::WAITING) {</span>
+<span class="source-line" id="L585"><a class="line-no" href="#L585">585</a>                seq-&gt;schedule.status = SequenceStatus::RUNNING;</span>
+<span class="source-line" id="L586"><a class="line-no" href="#L586">586</a>                allocate_mtp_info_slot(*seq);</span>
+<span class="source-line" id="L587"><a class="line-no" href="#L587">587</a>                running.push_back(std::move(seq));</span>
+<span class="source-line" id="L588"><a class="line-no" href="#L588">588</a>            } else {</span>
+<span class="source-line" id="L589"><a class="line-no" href="#L589">589</a>                TORCH_CHECK(seq-&gt;is_finished(), &quot;prompted 队列中的 seq 状态为 &quot;, int(seq-&gt;schedule.status), &quot; ，不应该&quot;);</span>
+<span class="source-line" id="L590"><a class="line-no" href="#L590">590</a>                finished_seqs.push_back(std::move(seq));</span>
+<span class="source-line" id="L591"><a class="line-no" href="#L591">591</a>            }</span>
+<span class="source-line" id="L592"><a class="line-no" href="#L592">592</a>            prompted.pop_front();</span>
+<span class="source-line" id="L593"><a class="line-no" href="#L593">593</a>        };</span>
+<span class="source-line" id="L594"><a class="line-no" href="#L594">594</a></span>
+<span class="source-line" id="L595"><a class="line-no" href="#L595">595</a>        while (!prompted.empty() &amp;&amp; running.size() &lt; max_seqs) {</span>
+<span class="source-line" id="L596"><a class="line-no" href="#L596">596</a>            auto &amp;&amp;[seq, forked] = prompted.front();</span>
+<span class="source-line" id="L597"><a class="line-no" href="#L597">597</a>            if (seq-&gt;schedule.status == SequenceStatus::FINISHED_ABORTED) { // 进 CE 之前就 abort 了</span>
+<span class="source-line" id="L598"><a class="line-no" href="#L598">598</a>                finished_seqs.push_back(std::move(seq));</span>
+<span class="source-line" id="L599"><a class="line-no" href="#L599">599</a>                prompted.pop_front();</span>
+<span class="source-line" id="L600"><a class="line-no" href="#L600">600</a>                continue;</span>
+<span class="source-line" id="L601"><a class="line-no" href="#L601">601</a>            }</span>
+<span class="source-line" id="L602"><a class="line-no" href="#L602">602</a>            if (forked) {</span>
+<span class="source-line" id="L603"><a class="line-no" href="#L603">603</a>                if ((state_manager &amp;&amp; !state_manager-&gt;can_allocate_single_nolock()) || !block_manager-&gt;can_allocate_single_nolock()) {</span>
+<span class="source-line" id="L604"><a class="line-no" href="#L604">604</a>                    break;</span>
+<span class="source-line" id="L605"><a class="line-no" href="#L605">605</a>                }</span>
+<span class="source-line" id="L606"><a class="line-no" href="#L606">606</a>                _clone_state(*seq);</span>
+<span class="source-line" id="L607"><a class="line-no" href="#L607">607</a>                int new_block = block_manager-&gt;allocate_single_nolock();</span>
+<span class="source-line" id="L608"><a class="line-no" href="#L608">608</a>                int num_blocks = (seq-&gt;cache.num_tokens + seq-&gt;cache.block_size - 1) / seq-&gt;cache.block_size;</span>
+<span class="source-line" id="L609"><a class="line-no" href="#L609">609</a>                TORCH_CHECK_LE(num_blocks, static_cast&lt;int&gt;(seq-&gt;cache.block_table.size()));</span>
+<span class="source-line" id="L610"><a class="line-no" href="#L610">610</a>                clone_blocks.emplace_back(seq-&gt;cache.block_table[num_blocks - 1]);</span>
+<span class="source-line" id="L611"><a class="line-no" href="#L611">611</a>                clone_blocks.emplace_back(new_block);</span>
+<span class="source-line" id="L612"><a class="line-no" href="#L612">612</a>                for (size_t i = num_blocks; i &lt; seq-&gt;cache.block_table.size(); ++i) {</span>
+<span class="source-line" id="L613"><a class="line-no" href="#L613">613</a>                    clone_blocks.emplace_back(seq-&gt;cache.block_table[i]);</span>
+<span class="source-line" id="L614"><a class="line-no" href="#L614">614</a>                    clone_blocks.emplace_back(0);</span>
+<span class="source-line" id="L615"><a class="line-no" href="#L615">615</a>                }</span>
+<span class="source-line" id="L616"><a class="line-no" href="#L616">616</a>                seq-&gt;cache.block_table[num_blocks - 1] = new_block;</span>
+<span class="source-line" id="L617"><a class="line-no" href="#L617">617</a>                seq-&gt;cache.block_table.erase(seq-&gt;cache.block_table.begin() + num_blocks, seq-&gt;cache.block_table.end());</span>
+<span class="source-line" id="L618"><a class="line-no" href="#L618">618</a>            }</span>
+<span class="source-line" id="L619"><a class="line-no" href="#L619">619</a>            admit(std::move(seq));</span>
+<span class="source-line" id="L620"><a class="line-no" href="#L620">620</a>        }</span>
+<span class="source-line" id="L621"><a class="line-no" href="#L621">621</a></span>
+<span class="source-line" id="L622"><a class="line-no" href="#L622">622</a>        // LCFS</span>
+<span class="source-line" id="L623"><a class="line-no" href="#L623">623</a>        std::vector&lt;SequencePtr&gt; scheduled;</span>
+<span class="source-line" id="L624"><a class="line-no" href="#L624">624</a>        std::sort(running.begin(), running.end(),</span>
+<span class="source-line" id="L625"><a class="line-no" href="#L625">625</a>            [](const SequencePtr &amp;a, const SequencePtr &amp;b) { return a-&gt;get_output_len() &gt; b-&gt;get_output_len(); });</span>
+<span class="source-line" id="L626"><a class="line-no" href="#L626">626</a>        scheduled.reserve(max_seqs);</span>
+<span class="source-line" id="L627"><a class="line-no" href="#L627">627</a>        size_t l = 0, r = running.size();</span>
+<span class="source-line" id="L628"><a class="line-no" href="#L628">628</a>        while (l &lt; r &amp;&amp; scheduled.size() &lt; max_seqs) {</span>
+<span class="source-line" id="L629"><a class="line-no" href="#L629">629</a>            auto &amp;seq = running[r - 1];</span>
+<span class="source-line" id="L630"><a class="line-no" href="#L630">630</a>            while (!block_manager-&gt;can_allocate_single_nolock() &amp;&amp; r - l &gt; 1) {</span>
+<span class="source-line" id="L631"><a class="line-no" href="#L631">631</a>                auto victim_seq = running[l];</span>
+<span class="source-line" id="L632"><a class="line-no" href="#L632">632</a>                _preempt(victim_seq, ignored_seqs);</span>
+<span class="source-line" id="L633"><a class="line-no" href="#L633">633</a>                l += 1;</span>
+<span class="source-line" id="L634"><a class="line-no" href="#L634">634</a>            }</span>
+<span class="source-line" id="L635"><a class="line-no" href="#L635">635</a>            if (block_manager-&gt;can_allocate_single_nolock()) {</span>
+<span class="source-line" id="L636"><a class="line-no" href="#L636">636</a>                _append_slot(*seq);</span>
+<span class="source-line" id="L637"><a class="line-no" href="#L637">637</a>                scheduled.push_back(std::move(seq));</span>
+<span class="source-line" id="L638"><a class="line-no" href="#L638">638</a>            } else {</span>
+<span class="source-line" id="L639"><a class="line-no" href="#L639">639</a>                _preempt(seq, ignored_seqs);</span>
+<span class="source-line" id="L640"><a class="line-no" href="#L640">640</a>            }</span>
+<span class="source-line" id="L641"><a class="line-no" href="#L641">641</a></span>
+<span class="source-line" id="L642"><a class="line-no" href="#L642">642</a>            r -= 1;</span>
+<span class="source-line" id="L643"><a class="line-no" href="#L643">643</a>        }</span>
+<span class="source-line" id="L644"><a class="line-no" href="#L644">644</a></span>
+<span class="source-line" id="L645"><a class="line-no" href="#L645">645</a>        TORCH_CHECK(l == r, &quot;decode 时 running 有排队，已经调度 &quot;, scheduled.size(), &quot;个，还剩 &quot;, r - l, &quot; 个，不应该&quot;);</span>
+<span class="source-line" id="L646"><a class="line-no" href="#L646">646</a>        running.clear();</span>
+<span class="source-line" id="L647"><a class="line-no" href="#L647">647</a></span>
+<span class="source-line" id="L648"><a class="line-no" href="#L648">648</a>        std::sort(</span>
+<span class="source-line" id="L649"><a class="line-no" href="#L649">649</a>            scheduled.begin(), scheduled.end(), [](const SequencePtr &amp;a, const SequencePtr &amp;b) { return a-&gt;get_len() &gt; b-&gt;get_len(); });</span>
+<span class="source-line" id="L650"><a class="line-no" href="#L650">650</a></span>
+<span class="source-line" id="L651"><a class="line-no" href="#L651">651</a>        std::vector&lt;int&gt; seqlens_q;</span>
+<span class="source-line" id="L652"><a class="line-no" href="#L652">652</a>        _mtp_varlen.schedule(scheduled, seqlens_q);</span>
+<span class="source-line" id="L653"><a class="line-no" href="#L653">653</a></span>
+<span class="source-line" id="L654"><a class="line-no" href="#L654">654</a>        int num_batched_tokens = 0;</span>
+<span class="source-line" id="L655"><a class="line-no" href="#L655">655</a>        for (int seqlen_q : seqlens_q) {</span>
+<span class="source-line" id="L656"><a class="line-no" href="#L656">656</a>            num_batched_tokens += seqlen_q;</span>
+<span class="source-line" id="L657"><a class="line-no" href="#L657">657</a>        }</span>
+<span class="source-line" id="L658"><a class="line-no" href="#L658">658</a>        return _make_outputs(</span>
+<span class="source-line" id="L659"><a class="line-no" href="#L659">659</a>            std::move(scheduled), false, num_batched_tokens, std::move(finished_seqs), std::move(ignored_seqs), std::move(seqlens_q), 0);</span></code></pre></main></body></html>

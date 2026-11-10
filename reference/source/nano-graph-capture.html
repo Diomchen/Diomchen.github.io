@@ -1,0 +1,35 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>nano-graph-capture</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>nano-graph-capture</h1><p class="source-note">nano-vllm/nanovllm/engine/model_runner.py · bb823b3 · L223–257 · <a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/engine/model_runner.py#L223-L257">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>nano-vllm · MIT</strong><p>Copyright (c) 2025 Xingkai Yu。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/nano-vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L223"><a class="line-no" href="#L223">223</a>    def capture_cudagraph(self):</span>
+<span class="source-line" id="L224"><a class="line-no" href="#L224">224</a>        config = self.config</span>
+<span class="source-line" id="L225"><a class="line-no" href="#L225">225</a>        hf_config = config.hf_config</span>
+<span class="source-line" id="L226"><a class="line-no" href="#L226">226</a>        max_bs = min(self.config.max_num_seqs, 512)</span>
+<span class="source-line" id="L227"><a class="line-no" href="#L227">227</a>        max_num_blocks = (config.max_model_len + self.block_size - 1) // self.block_size</span>
+<span class="source-line" id="L228"><a class="line-no" href="#L228">228</a>        input_ids = torch.zeros(max_bs, dtype=torch.int64)</span>
+<span class="source-line" id="L229"><a class="line-no" href="#L229">229</a>        positions = torch.zeros(max_bs, dtype=torch.int64)</span>
+<span class="source-line" id="L230"><a class="line-no" href="#L230">230</a>        slot_mapping = torch.zeros(max_bs, dtype=torch.int32)</span>
+<span class="source-line" id="L231"><a class="line-no" href="#L231">231</a>        context_lens = torch.zeros(max_bs, dtype=torch.int32)</span>
+<span class="source-line" id="L232"><a class="line-no" href="#L232">232</a>        block_tables = torch.zeros(max_bs, max_num_blocks, dtype=torch.int32)</span>
+<span class="source-line" id="L233"><a class="line-no" href="#L233">233</a>        outputs = torch.zeros(max_bs, hf_config.hidden_size)</span>
+<span class="source-line" id="L234"><a class="line-no" href="#L234">234</a>        self.graph_bs = [1, 2, 4, 8] + list(range(16, max_bs + 1, 16))</span>
+<span class="source-line" id="L235"><a class="line-no" href="#L235">235</a>        self.graphs = {}</span>
+<span class="source-line" id="L236"><a class="line-no" href="#L236">236</a>        self.graph_pool = None</span>
+<span class="source-line" id="L237"><a class="line-no" href="#L237">237</a></span>
+<span class="source-line" id="L238"><a class="line-no" href="#L238">238</a>        for bs in reversed(self.graph_bs):</span>
+<span class="source-line" id="L239"><a class="line-no" href="#L239">239</a>            graph = torch.cuda.CUDAGraph()</span>
+<span class="source-line" id="L240"><a class="line-no" href="#L240">240</a>            set_context(False, slot_mapping=slot_mapping[:bs], context_lens=context_lens[:bs], block_tables=block_tables[:bs])</span>
+<span class="source-line" id="L241"><a class="line-no" href="#L241">241</a>            outputs[:bs] = self.model(input_ids[:bs], positions[:bs])    # warmup</span>
+<span class="source-line" id="L242"><a class="line-no" href="#L242">242</a>            with torch.cuda.graph(graph, self.graph_pool):</span>
+<span class="source-line" id="L243"><a class="line-no" href="#L243">243</a>                outputs[:bs] = self.model(input_ids[:bs], positions[:bs])    # capture</span>
+<span class="source-line" id="L244"><a class="line-no" href="#L244">244</a>            if self.graph_pool is None:</span>
+<span class="source-line" id="L245"><a class="line-no" href="#L245">245</a>                self.graph_pool = graph.pool()</span>
+<span class="source-line" id="L246"><a class="line-no" href="#L246">246</a>            self.graphs[bs] = graph</span>
+<span class="source-line" id="L247"><a class="line-no" href="#L247">247</a>            torch.cuda.synchronize()</span>
+<span class="source-line" id="L248"><a class="line-no" href="#L248">248</a>            reset_context()</span>
+<span class="source-line" id="L249"><a class="line-no" href="#L249">249</a></span>
+<span class="source-line" id="L250"><a class="line-no" href="#L250">250</a>        self.graph_vars = dict(</span>
+<span class="source-line" id="L251"><a class="line-no" href="#L251">251</a>            input_ids=input_ids,</span>
+<span class="source-line" id="L252"><a class="line-no" href="#L252">252</a>            positions=positions,</span>
+<span class="source-line" id="L253"><a class="line-no" href="#L253">253</a>            slot_mapping=slot_mapping,</span>
+<span class="source-line" id="L254"><a class="line-no" href="#L254">254</a>            context_lens=context_lens,</span>
+<span class="source-line" id="L255"><a class="line-no" href="#L255">255</a>            block_tables=block_tables,</span>
+<span class="source-line" id="L256"><a class="line-no" href="#L256">256</a>            outputs=outputs,</span>
+<span class="source-line" id="L257"><a class="line-no" href="#L257">257</a>        )</span></code></pre></main></body></html>

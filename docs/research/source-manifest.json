@@ -1,0 +1,450 @@
+{
+  "nano-qkv": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/models/qwen3.py",
+    "start": 14,
+    "end": 91,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/models/qwen3.py#L14-L91",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-mlp": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/models/qwen3.py",
+    "start": 91,
+    "end": 122,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/models/qwen3.py#L91-L122",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-decoder": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/models/qwen3.py",
+    "start": 120,
+    "end": 169,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/models/qwen3.py#L120-L169",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-lm-head": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/models/qwen3.py",
+    "start": 186,
+    "end": 216,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/models/qwen3.py#L186-L216",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-embedding": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/layers/embed_head.py",
+    "start": 9,
+    "end": 66,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/layers/embed_head.py#L9-L66",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-rope": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/layers/rotary_embedding.py",
+    "start": 6,
+    "end": 50,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/layers/rotary_embedding.py#L6-L50",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-rmsnorm": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/layers/layernorm.py",
+    "start": 5,
+    "end": 50,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/layers/layernorm.py#L5-L50",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-silu": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/layers/activation.py",
+    "start": 6,
+    "end": 11,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/layers/activation.py#L6-L11",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-attention": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/layers/attention.py",
+    "start": 43,
+    "end": 75,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/layers/attention.py#L43-L75",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-store-kv": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/layers/attention.py",
+    "start": 11,
+    "end": 40,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/layers/attention.py#L11-L40",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-cache-allocation": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/engine/model_runner.py",
+    "start": 103,
+    "end": 122,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/engine/model_runner.py#L103-L122",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-prefill-inputs": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/engine/model_runner.py",
+    "start": 129,
+    "end": 170,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/engine/model_runner.py#L129-L170",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-decode-inputs": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/engine/model_runner.py",
+    "start": 172,
+    "end": 188,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/engine/model_runner.py#L172-L188",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-graph-replay": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/engine/model_runner.py",
+    "start": 196,
+    "end": 220,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/engine/model_runner.py#L196-L220",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-graph-capture": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/engine/model_runner.py",
+    "start": 223,
+    "end": 257,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/engine/model_runner.py#L223-L257",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-sampler": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/layers/sampler.py",
+    "start": 5,
+    "end": 12,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/layers/sampler.py#L5-L12",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-scheduler": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/engine/scheduler.py",
+    "start": 25,
+    "end": 92,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/engine/scheduler.py#L25-L92",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-sequence": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/engine/sequence.py",
+    "start": 14,
+    "end": 79,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/engine/sequence.py#L14-L79",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-blocks": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/engine/block_manager.py",
+    "start": 26,
+    "end": 120,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/engine/block_manager.py#L26-L120",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "nano-engine-step": {
+    "repo": "nano-vllm",
+    "path": "nanovllm/engine/llm_engine.py",
+    "start": 49,
+    "end": 90,
+    "url": "https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/engine/llm_engine.py#L49-L90",
+    "commit": "bb823b3e06983d71485a8e1f23715ebd87d98ef8"
+  },
+  "vllm-engine-step": {
+    "repo": "vllm",
+    "path": "vllm/v1/engine/core.py",
+    "start": 710,
+    "end": 740,
+    "url": "https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/engine/core.py#L710-L740",
+    "commit": "ef9339e64d458b10ab49b2c9af35645eff6388fd"
+  },
+  "vllm-request": {
+    "repo": "vllm",
+    "path": "vllm/v1/request.py",
+    "start": 165,
+    "end": 186,
+    "url": "https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/request.py#L165-L186",
+    "commit": "ef9339e64d458b10ab49b2c9af35645eff6388fd"
+  },
+  "vllm-budget": {
+    "repo": "vllm",
+    "path": "vllm/v1/core/sched/scheduler.py",
+    "start": 800,
+    "end": 871,
+    "url": "https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/core/sched/scheduler.py#L800-L871",
+    "commit": "ef9339e64d458b10ab49b2c9af35645eff6388fd"
+  },
+  "vllm-allocation": {
+    "repo": "vllm",
+    "path": "vllm/v1/core/sched/scheduler.py",
+    "start": 922,
+    "end": 1028,
+    "url": "https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/core/sched/scheduler.py#L922-L1028",
+    "commit": "ef9339e64d458b10ab49b2c9af35645eff6388fd"
+  },
+  "vllm-advance": {
+    "repo": "vllm",
+    "path": "vllm/v1/core/sched/scheduler.py",
+    "start": 1888,
+    "end": 1907,
+    "url": "https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/core/sched/scheduler.py#L1888-L1907",
+    "commit": "ef9339e64d458b10ab49b2c9af35645eff6388fd"
+  },
+  "vllm-output": {
+    "repo": "vllm",
+    "path": "vllm/v1/core/sched/scheduler.py",
+    "start": 2349,
+    "end": 2458,
+    "url": "https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/core/sched/scheduler.py#L2349-L2458",
+    "commit": "ef9339e64d458b10ab49b2c9af35645eff6388fd"
+  },
+  "vllm-contract": {
+    "repo": "vllm",
+    "path": "vllm/v1/core/sched/output.py",
+    "start": 245,
+    "end": 279,
+    "url": "https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/core/sched/output.py#L245-L279",
+    "commit": "ef9339e64d458b10ab49b2c9af35645eff6388fd"
+  },
+  "vllm-prefix-lookup": {
+    "repo": "vllm",
+    "path": "vllm/v1/core/kv_cache_manager.py",
+    "start": 266,
+    "end": 328,
+    "url": "https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/core/kv_cache_manager.py#L266-L328",
+    "commit": "ef9339e64d458b10ab49b2c9af35645eff6388fd"
+  },
+  "vllm-hash": {
+    "repo": "vllm",
+    "path": "vllm/v1/core/kv_cache_utils.py",
+    "start": 640,
+    "end": 740,
+    "url": "https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/core/kv_cache_utils.py#L640-L740",
+    "commit": "ef9339e64d458b10ab49b2c9af35645eff6388fd"
+  },
+  "vllm-block-pool": {
+    "repo": "vllm",
+    "path": "vllm/v1/core/block_pool.py",
+    "start": 681,
+    "end": 830,
+    "url": "https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/core/block_pool.py#L681-L830",
+    "commit": "ef9339e64d458b10ab49b2c9af35645eff6388fd"
+  },
+  "vllm-pack": {
+    "repo": "vllm",
+    "path": "vllm/v1/worker/gpu_model_runner.py",
+    "start": 1923,
+    "end": 2064,
+    "url": "https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/worker/gpu_model_runner.py#L1923-L2064",
+    "commit": "ef9339e64d458b10ab49b2c9af35645eff6388fd"
+  },
+  "vllm-metadata": {
+    "repo": "vllm",
+    "path": "vllm/v1/worker/gpu_model_runner.py",
+    "start": 2102,
+    "end": 2196,
+    "url": "https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/worker/gpu_model_runner.py#L2102-L2196",
+    "commit": "ef9339e64d458b10ab49b2c9af35645eff6388fd"
+  },
+  "vllm-slot": {
+    "repo": "vllm",
+    "path": "vllm/v1/worker/block_table.py",
+    "start": 348,
+    "end": 376,
+    "url": "https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/worker/block_table.py#L348-L376",
+    "commit": "ef9339e64d458b10ab49b2c9af35645eff6388fd"
+  },
+  "vllm-forward": {
+    "repo": "vllm",
+    "path": "vllm/v1/worker/gpu_model_runner.py",
+    "start": 4136,
+    "end": 4190,
+    "url": "https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/worker/gpu_model_runner.py#L4136-L4190",
+    "commit": "ef9339e64d458b10ab49b2c9af35645eff6388fd"
+  },
+  "vllm-cudagraph-doc": {
+    "repo": "vllm",
+    "path": "docs/design/cuda_graphs.md",
+    "start": 40,
+    "end": 169,
+    "url": "https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/docs/design/cuda_graphs.md#L40-L169",
+    "commit": "ef9339e64d458b10ab49b2c9af35645eff6388fd"
+  },
+  "deepinfer-scope": {
+    "repo": "deepinfer",
+    "path": "README.md",
+    "start": 3,
+    "end": 52,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/README.md#L3-L52",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-add": {
+    "repo": "deepinfer",
+    "path": "deepinfer/engine/llm_engine.py",
+    "start": 591,
+    "end": 631,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/engine/llm_engine.py#L591-L631",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-schedule-type": {
+    "repo": "deepinfer",
+    "path": "csrc/engine/scheduler.hpp",
+    "start": 275,
+    "end": 343,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/csrc/engine/scheduler.hpp#L275-L343",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-prefill": {
+    "repo": "deepinfer",
+    "path": "csrc/engine/scheduler.hpp",
+    "start": 450,
+    "end": 549,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/csrc/engine/scheduler.hpp#L450-L549",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-decode": {
+    "repo": "deepinfer",
+    "path": "csrc/engine/scheduler.hpp",
+    "start": 556,
+    "end": 659,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/csrc/engine/scheduler.hpp#L556-L659",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-metadata": {
+    "repo": "deepinfer",
+    "path": "csrc/engine/scheduler.hpp",
+    "start": 667,
+    "end": 734,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/csrc/engine/scheduler.hpp#L667-L734",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-worker": {
+    "repo": "deepinfer",
+    "path": "deepinfer/worker/worker.py",
+    "start": 89,
+    "end": 188,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/worker/worker.py#L89-L188",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-moe-gate": {
+    "repo": "deepinfer",
+    "path": "deepinfer/model_executor/models/v4_modules/mlp.py",
+    "start": 379,
+    "end": 401,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/model_executor/models/v4_modules/mlp.py#L379-L401",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-moe-communication": {
+    "repo": "deepinfer",
+    "path": "deepinfer/model_executor/models/v4_modules/mlp.py",
+    "start": 461,
+    "end": 511,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/model_executor/models/v4_modules/mlp.py#L461-L511",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-moe-forward": {
+    "repo": "deepinfer",
+    "path": "deepinfer/model_executor/models/v4_modules/mlp.py",
+    "start": 565,
+    "end": 616,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/model_executor/models/v4_modules/mlp.py#L565-L616",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-eplb-policy": {
+    "repo": "deepinfer",
+    "path": "deepinfer/model_executor/eplb/policy.py",
+    "start": 12,
+    "end": 140,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/model_executor/eplb/policy.py#L12-L140",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-eplb-trigger": {
+    "repo": "deepinfer",
+    "path": "deepinfer/model_executor/eplb/__init__.py",
+    "start": 146,
+    "end": 165,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/model_executor/eplb/__init__.py#L146-L165",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-eplb-migration": {
+    "repo": "deepinfer",
+    "path": "deepinfer/model_executor/eplb/__init__.py",
+    "start": 195,
+    "end": 278,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/model_executor/eplb/__init__.py#L195-L278",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-confidence": {
+    "repo": "deepinfer",
+    "path": "deepinfer/model_executor/models/mtp/dflash.py",
+    "start": 46,
+    "end": 79,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/model_executor/models/mtp/dflash.py#L46-L79",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-mtp-schedule": {
+    "repo": "deepinfer",
+    "path": "csrc/engine/mtp_varlen.hpp",
+    "start": 139,
+    "end": 266,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/csrc/engine/mtp_varlen.hpp#L139-L266",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-accept-rates": {
+    "repo": "deepinfer",
+    "path": "csrc/engine/scheduler.hpp",
+    "start": 1239,
+    "end": 1250,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/csrc/engine/scheduler.hpp#L1239-L1250",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-commit": {
+    "repo": "deepinfer",
+    "path": "csrc/engine/scheduler.hpp",
+    "start": 899,
+    "end": 1003,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/csrc/engine/scheduler.hpp#L899-L1003",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-cache-counter": {
+    "repo": "deepinfer",
+    "path": "csrc/engine/sequence.hpp",
+    "start": 210,
+    "end": 221,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/csrc/engine/sequence.hpp#L210-L221",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-swa": {
+    "repo": "deepinfer",
+    "path": "doc/inference_deployment_qa.md",
+    "start": 235,
+    "end": 245,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/doc/inference_deployment_qa.md#L235-L245",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-swa-config": {
+    "repo": "deepinfer",
+    "path": "deepinfer/environ.py",
+    "start": 194,
+    "end": 204,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/environ.py#L194-L204",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  },
+  "deepinfer-seed": {
+    "repo": "deepinfer",
+    "path": "deepinfer/sampling_params.py",
+    "start": 85,
+    "end": 93,
+    "url": "https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/sampling_params.py#L85-L93",
+    "commit": "a679bb86ce36e883a98a97733492b686e5b9a08e"
+  }
+}

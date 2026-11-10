@@ -1,0 +1,50 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>deepinfer-scope</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>deepinfer-scope</h1><p class="source-note">deepinfer/README.md · a679bb8 · L3–52 · <a href="https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/README.md#L3-L52">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>deepinfer · Apache-2.0</strong><p>DeepInfer project and its contributors。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/deepinfer/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L3"><a class="line-no" href="#L3">3</a>DeepInfer is the high-performance inference framework that powers DeepSeek&#x27;s large-scale production services. This open-source release provides offline inference with the core features needed for serving at scale.</span>
+<span class="source-line" id="L4"><a class="line-no" href="#L4">4</a></span>
+<span class="source-line" id="L5"><a class="line-no" href="#L5">5</a>Supported models:</span>
+<span class="source-line" id="L6"><a class="line-no" href="#L6">6</a></span>
+<span class="source-line" id="L7"><a class="line-no" href="#L7">7</a>- DeepSeek-V4.1-Flash</span>
+<span class="source-line" id="L8"><a class="line-no" href="#L8">8</a></span>
+<span class="source-line" id="L9"><a class="line-no" href="#L9">9</a>Supported features:</span>
+<span class="source-line" id="L10"><a class="line-no" href="#L10">10</a></span>
+<span class="source-line" id="L11"><a class="line-no" href="#L11">11</a>- Optimized kernels, model and sampler runtime</span>
+<span class="source-line" id="L12"><a class="line-no" href="#L12">12</a>- Parallelism: Attention DP / balanced CP, MoE EP + EPLB</span>
+<span class="source-line" id="L13"><a class="line-no" href="#L13">13</a>- DSpark and confidence-scheduled verification</span>
+<span class="source-line" id="L14"><a class="line-no" href="#L14">14</a>- SWA bounded replay</span>
+<span class="source-line" id="L15"><a class="line-no" href="#L15">15</a>- Asynchronous scheduling (zero-overhead batch scheduler)</span>
+<span class="source-line" id="L16"><a class="line-no" href="#L16">16</a>- Batch-invariant inference</span>
+<span class="source-line" id="L17"><a class="line-no" href="#L17">17</a>- Deterministic sampling</span>
+<span class="source-line" id="L18"><a class="line-no" href="#L18">18</a>- Structured outputs</span>
+<span class="source-line" id="L19"><a class="line-no" href="#L19">19</a></span>
+<span class="source-line" id="L20"><a class="line-no" href="#L20">20</a>&lt;details&gt;</span>
+<span class="source-line" id="L21"><a class="line-no" href="#L21">21</a>&lt;summary&gt;Feature details and configuration&lt;/summary&gt;</span>
+<span class="source-line" id="L22"><a class="line-no" href="#L22">22</a></span>
+<span class="source-line" id="L23"><a class="line-no" href="#L23">23</a>- **Optimized kernels:** [FlashMLA](https://github.com/deepseek-ai/FlashMLA), [DeepGEMM](https://github.com/deepseek-ai/DeepGEMM), [DeepEP](https://github.com/deepseek-ai/DeepEP), [TileKernels](https://github.com/deepseek-ai/TileKernels), [DeepSelect](https://github.com/deepseek-ai/DeepSelect), and custom [TileLang kernels](deepinfer/model_executor/layers/tilelang_ops).</span>
+<span class="source-line" id="L24"><a class="line-no" href="#L24">24</a>- **DSpark and confidence-scheduled verification:** accelerate decoding with draft tokens and use confidence estimates to schedule verification. Set `DEEPINFER_ENABLE_MTP_VARLEN=1`; `DEEPINFER_USE_NEXTN_DECODE` controls the maximum draft length (default: 5).</span>
+<span class="source-line" id="L25"><a class="line-no" href="#L25">25</a>- **Decoder SWA bounded replay:** reduce decoder prefill work by replaying only a bounded suffix. Set `DEEPINFER_YOCO_PREFILL_TRUNCATION_MODE=compact` and `DEEPINFER_YOCO_PREFILL_KEEP_TOKENS=140` for the default V4.1 settings; the retained suffix must cover the SWA window plus the maximum backtracking length.</span>
+<span class="source-line" id="L26"><a class="line-no" href="#L26">26</a>- **Asynchronous scheduling:** overlap CPU batch scheduling with device execution. Enabled by default.</span>
+<span class="source-line" id="L27"><a class="line-no" href="#L27">27</a>- **Batch-invariant inference:** keep model results identical across different batch compositions. Enable with `DEEPINFER_BATCH_INVARIANT=1` (NVIDIA only).</span>
+<span class="source-line" id="L28"><a class="line-no" href="#L28">28</a>- **Deterministic sampling:** produce identical outputs for identical input tokens and sampling parameters. Set `DEEPINFER_BATCH_INVARIANT=1 DEEPINFER_ENABLE_MTP_VARLEN=0` and pass a fixed `seq_seed` to `SamplingParams` (NVIDIA only).</span>
+<span class="source-line" id="L29"><a class="line-no" href="#L29">29</a>- **Structured outputs:** constrain generation to a regex, JSON schema, or EBNF grammar. Pass `so_args={&quot;schema_type&quot;: ..., &quot;schema&quot;: ...}` to `SamplingParams`; see [examples](examples/_structured_output.py).</span>
+<span class="source-line" id="L30"><a class="line-no" href="#L30">30</a></span>
+<span class="source-line" id="L31"><a class="line-no" href="#L31">31</a>&lt;/details&gt;</span>
+<span class="source-line" id="L32"><a class="line-no" href="#L32">32</a></span>
+<span class="source-line" id="L33"><a class="line-no" href="#L33">33</a>Supported hardware:</span>
+<span class="source-line" id="L34"><a class="line-no" href="#L34">34</a></span>
+<span class="source-line" id="L35"><a class="line-no" href="#L35">35</a>- NVIDIA SM100 GPUs</span>
+<span class="source-line" id="L36"><a class="line-no" href="#L36">36</a>- Huawei Ascend 950 NPUs</span>
+<span class="source-line" id="L37"><a class="line-no" href="#L37">37</a></span>
+<span class="source-line" id="L38"><a class="line-no" href="#L38">38</a>Required for a complete inference service (not included in this release):</span>
+<span class="source-line" id="L39"><a class="line-no" href="#L39">39</a></span>
+<span class="source-line" id="L40"><a class="line-no" href="#L40">40</a>- A KV cache system</span>
+<span class="source-line" id="L41"><a class="line-no" href="#L41">41</a>- VE/Prefill/Decode disaggregation (most required engine functionality is already implemented)</span>
+<span class="source-line" id="L42"><a class="line-no" href="#L42">42</a>- Load balancing across data-parallel replicas for both prefill and decode</span>
+<span class="source-line" id="L43"><a class="line-no" href="#L43">43</a></span>
+<span class="source-line" id="L44"><a class="line-no" href="#L44">44</a>## Getting started</span>
+<span class="source-line" id="L45"><a class="line-no" href="#L45">45</a></span>
+<span class="source-line" id="L46"><a class="line-no" href="#L46">46</a>### Prerequisites</span>
+<span class="source-line" id="L47"><a class="line-no" href="#L47">47</a></span>
+<span class="source-line" id="L48"><a class="line-no" href="#L48">48</a>- Linux</span>
+<span class="source-line" id="L49"><a class="line-no" href="#L49">49</a>- GCC &gt;= 13.0</span>
+<span class="source-line" id="L50"><a class="line-no" href="#L50">50</a>- Python 3.12</span>
+<span class="source-line" id="L51"><a class="line-no" href="#L51">51</a>- CUDA 13 (NVIDIA only)</span>
+<span class="source-line" id="L52"><a class="line-no" href="#L52">52</a>- CANN 9.2 (Ascend only)</span></code></pre></main></body></html>

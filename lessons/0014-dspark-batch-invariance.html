@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>14 · DSpark 与确定性推理</title>
+<link rel="stylesheet" href="../assets/course.css?v=2">
+</head>
+<body>
+<div class="page">
+
+<nav class="lesson-nav">
+  <a href="0013-deepinfer-moe-eplb.html">← 13 MoE 与 EPLB</a>
+  <a class="home" href="../index.html">课程索引</a>
+  <a href="../reference/glossary.html">术语表 →</a>
+</nav>
+
+<header>
+  <p class="kicker">课程 14 · 投机与确定性</p>
+  <h1>猜五个，验证几个？</h1>
+  <p class="dek">投机解码的老问题是「猜多了浪费、猜少了没收益」。DeepInfer 的 DSpark 用一个小型置信度头预测每个 draft token 的接受概率，再据此决定验证多长——同时还要保证结果与 batch 组成无关。</p>
+  <p class="meta">
+    <span>约 55 分钟</span>
+    <span>源码：<code>model_executor/models/mtp/dflash.py</code> · <code>environ.py</code></span>
+    <span>前置：11、13</span>
+  </p>
+</header><div class="aside"><span class="label">2026-11-08 源码校正</span><p>本页已按本地固定commit修正相关描述。<a href="../reference/framework-map.html">三框架对照</a> · <a href="../reference/source-map.html">带行号的离线证据</a> · <a href="../docs/research/framework-deep-dive-2026-11-08.md">核查与勘误详情</a>。</p></div>
+
+<h2><span class="num">1</span>DFlash：一次猜 5 个</h2>
+
+<p>DeepInfer 的投机解码来自模型自带的 MTP（Multi-Token Prediction）层：每一层预测「再下一个 token」。默认最多一次猜 <strong>5 个</strong>：</p>
+
+<pre><code><span class="file">environ.py · L136</span>DEEPINFER_USE_NEXTN_DECODE = EnvVar.int(default=5)</code></pre>
+
+<pre><code><span class="file">dflash.py · L82–110</span>class DFlash(nn.Module):
+    ...
+    self.max_MTP_value = envs.DEEPINFER_USE_NEXTN_DECODE   <span class="cm"># 每个 seq 生成的 propose 个数</span>
+    self.logprobs_dim = self.vocab_size if self.force_topk == 0 else self.force_topk</code></pre>
+
+<p>force_topk改变草稿候选logprobs的存储和支持集合，需与下游验证/残差采样一起理解；不能用“低概率token没有意义”跳过分布正确性检查。</p>
+
+<h2><span class="num">2</span>置信度头：预测「这个 draft 会被接受吗」</h2>
+
+<pre><code><span class="file">dflash.py · L46–79</span>class ConfidenceHead(nn.Module):
+    """Predict the acceptance probability of each draft token."""
+    def __init__(self, n_embed, markov_rank, num_steps, weight):
+        self.proj = ReplicatedLinear(n_embed + markov_rank, 1, weight=weight)
+        temperature = envs.DEEPINFER_DFLASH_CONFIDENCE_HEAD_TEMPERATURE
+        ...</code></pre>
+
+<p>它是一个极小的线性层：输入是隐藏状态（<code>n_embed</code>）加上 markov 嵌入（<code>markov_rank</code>），输出一个标量——该位置 draft token 的<strong>接受概率估计</strong>。</p>
+
+<pre><code><span class="file">dflash.py · L302–319</span>confidence_rates = (... if self.enable_confidence else None)
+...
+if confidence_rates is not None:
+    self.confidence_head(hidden, markov_emb, out=confidence_rates[:, step_i], step_i=step_i)</code></pre>
+
+<p>每个 draft 位置一个置信度，存进 <code>MTPPredictInfo(token_ids, confidence_rates)</code>，和 token 一起交给调度器。</p>
+
+<h2><span class="num">3</span>为什么需要置信度</h2>
+
+<p>普通投机解码是「固定猜 k 个，全部验证」：</p>
+
+<ul>
+  <li>如果模型对后续 token 很确定，k 太小 → 每次只验证几个，加速有限。</li>
+  <li>如果模型很犹豫，k 太大 → 大部分 draft 会被拒绝，验证的计算全白费。</li>
+</ul>
+
+<p>置信度让验证长度变成<strong>可变的</strong>：</p>
+
+<pre><code>置信度:  draft1 0.98   draft2 0.95   draft3 0.41   draft4 0.12
+累乘:    0.98 → 0.931 → 0.38171 → 0.0458052
+决策:    还需其它请求的候选与graph耗时曲线，不能只凭本行确定长度</code></pre>
+
+<p>环境变量 <code>DEEPINFER_ENABLE_MTP_VARLEN=1</code> 打开可变长度；<code>DEEPINFER_MAX_BACKTRACKING_TOKENS</code>（默认 ≥ 6）限制最坏情况下要回退多少。</p>
+
+<div class="key">
+  <span class="label">核心思想</span>
+  <p>真实实现先累乘前缀接受率，再跨请求排序，结合graph-size的预估耗时选择有效token/耗时最佳的总query预算。逐token的固定成本收益只适合独立的玩具练习。</p>
+</div>
+
+<h2><span class="num">4</span>SWA 与「有界重放」</h2>
+
+<p>这里的bounded replay针对YOCO consumer层的SWA状态重建，目标是减少decoder prefill工作；不能概括成模型所有层都只保留同一个窗口。部署QA明确称它为近似重建。</p>
+
+<p>compact模式移除早期query，只重放有界后缀；mask模式保留query但限制可见域。保留长度至少覆盖SWA window + max_backtracking。下面是README的启用示例；默认模式off，keep默认0。</p>
+
+<pre><code>DEEPINFER_YOCO_PREFILL_TRUNCATION_MODE=compact
+DEEPINFER_YOCO_PREFILL_KEEP_TOKENS=140      <span class="cm"># README推荐的V4.1启用示例</span></code></pre>
+
+<p>这个配置能减少重放工作，并保留回退所需窗口；但不保证与全量prefill逐位或严格数学等价。见<a href="../reference/source/deepinfer-swa.html">部署QA的approximate说明</a>。</p>
+
+<h2><span class="num">5</span>Batch invariance：同样的输入，同样的输出</h2>
+
+<p>这是 DeepInfer 最反直觉的特性。浮点运算的归约顺序可能改变结果，尤其是<strong>浮点加法不满足结合律</strong>：</p>
+
+<pre><code>(a + b) + c  ≠  a + (b + c)      <span class="cm"># 浮点加法不满足结合律</span></code></pre>
+
+<p>同一请求在不同batch下可能因kernel归约和随机流变化得到不同结果。确定性有利于回归、调试与需要复现轨迹的训练流程，但少量浮点差异并不自动意味着梯度错误；是否要求bitwise一致需结合算法目标。</p>
+
+<pre><code>DEEPINFER_BATCH_INVARIANT=1        <span class="cm"># 不同 batch 组成下结果完全一致（仅 NVIDIA）</span>
+DEEPINFER_ENABLE_MTP_VARLEN=0      <span class="cm"># 确定性的前提下关闭可变长验证</span>
++ 传给 SamplingParams 一个固定的 seq_seed</code></pre>
+
+<p>三者组合，才能得到 README 承诺的「deterministic sampling」：<strong>相同输入 token + 相同采样参数 → 相同输出</strong>。</p>
+
+<table>
+  <thead><tr><th>目标</th><th>需要打开</th><th>代价</th></tr></thead>
+  <tbody>
+    <tr><td>batch-invariant</td><td><code>DEEPINFER_BATCH_INVARIANT=1</code></td><td>只能用特定 kernel 路径（NVIDIA only），可能略慢</td></tr>
+    <tr><td>确定性采样</td><td>上述 + <code>MTP_VARLEN=0</code> + 固定 <code>seq_seed</code></td><td>失去可变长投机带来的加速</td></tr>
+    <tr><td>性能调优</td><td>固定负载对比配置</td><td>默认配置不保证吞吐最优</td></tr>
+  </tbody>
+</table>
+
+<div class="warn">
+  <span class="label">为什么不能「全都要」</span>
+  <p>该提交README明确给出NVIDIA上的确定性配置：batch-invariant路径、关闭MTP_VARLEN、固定seq_seed。它是一组可核对的前提，不是跨硬件、模型与版本无条件相同的承诺。</p>
+</div>
+
+<h2><span class="num">6</span>练习 A · 算一次验证的期望收益</h2>
+
+<p>假设验证一个 draft token 的边际成本是 1 单位，接受它能省下 3 单位（不用单独跑一步 decode）。四个 draft 的接受概率分别是 0.9、0.6、0.3、0.1。应该验证到第几个？</p>
+
+<details>
+  <summary>展开：答案</summary>
+  <p>验证第 i 个的期望净收益 ≈ <code>p_i × 3 − 1</code>：</p>
+  <p>① 0.9×3−1 = <strong>+1.7</strong>；② 0.6×3−1 = <strong>+0.8</strong>；③ 0.3×3−1 = <strong>−0.1</strong>；④ 0.1×3−1 = <strong>−0.7</strong>。</p>
+  <p>以上只是假设独立边际收益的玩具模型，不能推出真实DSpark阈值。真实实现对confidence累乘，结合跨请求排序与graph耗时曲线选择预计有效token/耗时最大的总预算，再分配各请求长度；详见<a href="0032-deepinfer-dspark-state.html">32课</a>。</p>
+</details>
+
+<h2><span class="num">7</span>练习 B · 闭卷测验</h2>
+
+<div class="quiz" data-quiz="dspark"></div>
+
+<h2><span class="num">8</span>面试复述卡</h2>
+
+<p><strong>「为什么推理引擎要做 batch invariance？」</strong></p>
+
+<details>
+  <summary>展开：30 秒版本</summary>
+  <p>「batch组成可改变归约与随机数消费。DeepInfer为支持的NVIDIA路径提供batch-invariant配置，再关闭variable-length verification并固定每请求seq_seed来满足其确定性采样条件。是否值得采用以及性能代价应按用途与负载验证。」</p>
+</details>
+
+<div class="ask-teacher">
+  <p><strong>到这儿，整条主线走完了。</strong> 你可以回去任选一课重读，或者告诉我：哪一块你想做成能跑的实验？我可以据此加一节实战课（比如在 4070 Ti 上复现投机解码的接受率曲线）。</p>
+</div>
+
+<footer class="lesson-footer">
+  <h3>主源与延伸</h3>
+  <ul>
+    <li><strong>主源</strong>：<code>model_executor/models/mtp/dflash.py</code>（L46–79 置信度头、L279–338 采样与置信度收集）。</li>
+    <li>配置：<code>deepinfer/environ.py</code> 里所有 <code>DEEPINFER_*</code> 开关。</li>
+    <li>延伸：<code>vendor/DeepGEMM</code>——batch-invariant 在矩阵乘层面的实现。</li>
+    <li>术语：<a href="../reference/glossary.html">术语表</a>（已补齐 MoE / EP / EPLB / DSpark）。</li>
+  </ul>
+</footer>
+
+</div>
+<script src="../assets/quiz.js?v=2"></script>
+<script>
+CourseQuiz.mount('[data-quiz="dspark"]', {
+  questions: [
+    {
+      q: 'ConfidenceHead 输出的标量表示：',
+      options: [
+        '该位置 draft token 的接受概率',
+        '该位置的注意力权重',
+        '下一个 token 的词表分布',
+        '当前序列的剩余长度'
+      ],
+      answer: 0,
+      why: ' 它是一个 `n_embed + markov_rank → 1` 的线性层，用来估计每个 draft 位置被接受的概率。'
+    },
+    {
+      q: 'DSpark 根据置信度调整的是：',
+      options: [
+        '验证多少个 draft token',
+        '每个 token 的采样温度',
+        'KV cache 的块大小',
+        '专家的副本数量'
+      ],
+      answer: 0,
+      why: ' 置信度低的后续 draft 预期收益低于验证成本，直接丢弃，从而让验证长度可变。'
+    },
+    {
+      q: 'SWA bounded replay 的目的与限制是：',
+      options: [
+        '减少后缀重建工作，属于近似',
+        '窗口外的 token 无法分词',
+        'SWA 不支持 KV cache',
+        '窗口大小会随 batch 变化'
+      ],
+      answer: 0,
+      why: '部署QA将其描述为近似重建；保留长度仍需覆盖window加最大回退。'
+    },
+    {
+      q: 'batch invariance 要解决的问题是：',
+      options: [
+        '浮点归约顺序随 batch 变化',
+        '不同 batch 的显存占用不同',
+        'batch 越大精度越低',
+        '多卡之间的时钟不同步'
+      ],
+      answer: 0,
+      why: ' 浮点加法不满足结合律，归约顺序改变会让同一请求在不同 batch 组合下产生不同结果。'
+    },
+    {
+      q: '打开确定性采样需要付出的代价是：',
+      options: [
+        '失去可变长投机等加速',
+        '无法使用多卡并行',
+        '必须降低模型精度',
+        '不能使用前缀缓存'
+      ],
+      answer: 0,
+      why: ' 要固定归约路径与验证长度，就与「按 batch 选最快 kernel」「按置信度动态验证」冲突，只能二选一。'
+    }
+  ]
+});
+</script>
+<script src="../assets/highlight.js?v=2"></script>
+<script src="../assets/lesson-ui.js?v=2"></script>
+</body>
+</html>

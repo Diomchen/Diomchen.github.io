@@ -1,0 +1,100 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>deepinfer-prefill</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>deepinfer-prefill</h1><p class="source-note">deepinfer/csrc/engine/scheduler.hpp · a679bb8 · L450–549 · <a href="https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/csrc/engine/scheduler.hpp#L450-L549">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>deepinfer · Apache-2.0</strong><p>DeepInfer project and its contributors。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/deepinfer/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L450"><a class="line-no" href="#L450">450</a></span>
+<span class="source-line" id="L451"><a class="line-no" href="#L451">451</a>            if (!prefix_caching_hit) {</span>
+<span class="source-line" id="L452"><a class="line-no" href="#L452">452</a>                /// Here it is assumed that the cache block size is larger</span>
+<span class="source-line" id="L453"><a class="line-no" href="#L453">453</a>                /// than the nextn num.</span>
+<span class="source-line" id="L454"><a class="line-no" href="#L454">454</a>                TORCH_CHECK(seq-&gt;cache.num_tokens == 0 || seq-&gt;cache.num_tokens &gt;= this-&gt;lookahead_tokens,</span>
+<span class="source-line" id="L455"><a class="line-no" href="#L455">455</a>                    SPRINT_VARS(&quot;Expected seq-&gt;cache.num_tokens == 0 || &quot;</span>
+<span class="source-line" id="L456"><a class="line-no" href="#L456">456</a>                                &quot;seq-&gt;cache.num_tokens &gt;= this-&gt;lookahead_tokens&quot;,</span>
+<span class="source-line" id="L457"><a class="line-no" href="#L457">457</a>                        seq-&gt;cache.num_tokens, this-&gt;lookahead_tokens));</span>
+<span class="source-line" id="L458"><a class="line-no" href="#L458">458</a>            }</span>
+<span class="source-line" id="L459"><a class="line-no" href="#L459">459</a></span>
+<span class="source-line" id="L460"><a class="line-no" href="#L460">460</a>            int seq_workload = num_prompt_tokens; /// 初始的 workload，用来判断是否 chunked</span>
+<span class="source-line" id="L461"><a class="line-no" href="#L461">461</a>            int new_workload = seq_workload;      /// 施加各限制条件后的 workload</span>
+<span class="source-line" id="L462"><a class="line-no" href="#L462">462</a>            int seqlen_q = seq_workload;</span>
+<span class="source-line" id="L463"><a class="line-no" href="#L463">463</a></span>
+<span class="source-line" id="L464"><a class="line-no" href="#L464">464</a>            TORCH_CHECK(seq_workload &gt;= this-&gt;lookahead_tokens,</span>
+<span class="source-line" id="L465"><a class="line-no" href="#L465">465</a>                SPRINT_VARS(&quot;Expected seq_workload &gt;= this-&gt;lookahead_tokens&quot;, seq_workload, this-&gt;lookahead_tokens));</span>
+<span class="source-line" id="L466"><a class="line-no" href="#L466">466</a></span>
+<span class="source-line" id="L467"><a class="line-no" href="#L467">467</a>            // 满足下面的条件才会对 prompt 做截断 (截断到基础长度)：</span>
+<span class="source-line" id="L468"><a class="line-no" href="#L468">468</a>            // 加上当前这个 prompt 后会超过基础长度</span>
+<span class="source-line" id="L469"><a class="line-no" href="#L469">469</a>            /// @note 算剩余token时要考虑到cp的pad</span>
+<span class="source-line" id="L470"><a class="line-no" href="#L470">470</a>            if (seq_workload &gt; (max_num_batched_tokens - num_batched_tokens) / cp_align * cp_align) {</span>
+<span class="source-line" id="L471"><a class="line-no" href="#L471">471</a>                new_workload = std::min(seq_workload, (max_num_batched_tokens - num_batched_tokens) / cp_align * cp_align);</span>
+<span class="source-line" id="L472"><a class="line-no" href="#L472">472</a>                seqlen_q = new_workload;</span>
+<span class="source-line" id="L473"><a class="line-no" href="#L473">473</a>                TORCH_CHECK(</span>
+<span class="source-line" id="L474"><a class="line-no" href="#L474">474</a>                    seqlen_q &lt; seq_workload, &quot;_schedule: is_chunked must be true:, seqlen_q:&quot;, seqlen_q, &quot; seq_workload: &quot;, seq_workload);</span>
+<span class="source-line" id="L475"><a class="line-no" href="#L475">475</a>            }</span>
+<span class="source-line" id="L476"><a class="line-no" href="#L476">476</a></span>
+<span class="source-line" id="L477"><a class="line-no" href="#L477">477</a>            auto start_offset = seq-&gt;cache.num_tokens;</span>
+<span class="source-line" id="L478"><a class="line-no" href="#L478">478</a>            while (!seq-&gt;schedule.chunk_checkpoints.empty() &amp;&amp; seq-&gt;schedule.chunk_checkpoints.front() &lt;= start_offset) {</span>
+<span class="source-line" id="L479"><a class="line-no" href="#L479">479</a>                seq-&gt;schedule.chunk_checkpoints.pop_front();</span>
+<span class="source-line" id="L480"><a class="line-no" href="#L480">480</a>            }</span>
+<span class="source-line" id="L481"><a class="line-no" href="#L481">481</a>            int checkpoint = seq-&gt;schedule.chunk_checkpoints.empty() ? 0 : seq-&gt;schedule.chunk_checkpoints.front();</span>
+<span class="source-line" id="L482"><a class="line-no" href="#L482">482</a></span>
+<span class="source-line" id="L483"><a class="line-no" href="#L483">483</a>            if (start_offset + seqlen_q &gt;= checkpoint &amp;&amp; checkpoint &gt; start_offset) {</span>
+<span class="source-line" id="L484"><a class="line-no" href="#L484">484</a>                seqlen_q = checkpoint - start_offset;</span>
+<span class="source-line" id="L485"><a class="line-no" href="#L485">485</a>                seq-&gt;schedule.chunk_checkpoints.pop_front();</span>
+<span class="source-line" id="L486"><a class="line-no" href="#L486">486</a>            }</span>
+<span class="source-line" id="L487"><a class="line-no" href="#L487">487</a>            // 调整多模态切的位置</span>
+<span class="source-line" id="L488"><a class="line-no" href="#L488">488</a>            int new_seqlen_q = _adjust_chunk_size(seqlen_q, seq-&gt;cache.num_tokens, seq-&gt;get_token_ids(), scheduled.empty());</span>
+<span class="source-line" id="L489"><a class="line-no" href="#L489">489</a>            if (num_batched_tokens + new_seqlen_q &gt; max_num_batched_tokens) {</span>
+<span class="source-line" id="L490"><a class="line-no" href="#L490">490</a>                seqlen_q = _adjust_chunk_size(seqlen_q, seq-&gt;cache.num_tokens, seq-&gt;get_token_ids(), false);</span>
+<span class="source-line" id="L491"><a class="line-no" href="#L491">491</a>            } else {</span>
+<span class="source-line" id="L492"><a class="line-no" href="#L492">492</a>                seqlen_q = new_seqlen_q;</span>
+<span class="source-line" id="L493"><a class="line-no" href="#L493">493</a>            }</span>
+<span class="source-line" id="L494"><a class="line-no" href="#L494">494</a>            if (seqlen_q == 0) {</span>
+<span class="source-line" id="L495"><a class="line-no" href="#L495">495</a>                TORCH_CHECK(!scheduled.empty(), std::format(&quot;有请求正在排队，但是调度不上来，不应该 (post_adjust)&quot;</span>
+<span class="source-line" id="L496"><a class="line-no" href="#L496">496</a>                                                            &quot;, len={}, cached={}, seq_workload={}, new_workload={}&quot;</span>
+<span class="source-line" id="L497"><a class="line-no" href="#L497">497</a>                                                            &quot;, num_batched_tokens={}, max_num_batched_tokens={}&quot;</span>
+<span class="source-line" id="L498"><a class="line-no" href="#L498">498</a>                                                            &quot;, cp_align={}, branch_id={}&quot;,</span>
+<span class="source-line" id="L499"><a class="line-no" href="#L499">499</a>                                                    seq-&gt;get_len(), seq-&gt;cache.num_tokens, seq_workload, new_workload, num_batched_tokens,</span>
+<span class="source-line" id="L500"><a class="line-no" href="#L500">500</a>                                                    max_num_batched_tokens, cp_align, seq-&gt;schedule.branch_id));</span>
+<span class="source-line" id="L501"><a class="line-no" href="#L501">501</a>                break;</span>
+<span class="source-line" id="L502"><a class="line-no" href="#L502">502</a>            }</span>
+<span class="source-line" id="L503"><a class="line-no" href="#L503">503</a></span>
+<span class="source-line" id="L504"><a class="line-no" href="#L504">504</a>            bool is_chunked = seqlen_q &lt; seq_workload;</span>
+<span class="source-line" id="L505"><a class="line-no" href="#L505">505</a>            if (is_chunked &amp;&amp; !chunked_prefill) {</span>
+<span class="source-line" id="L506"><a class="line-no" href="#L506">506</a>                break;</span>
+<span class="source-line" id="L507"><a class="line-no" href="#L507">507</a>            }</span>
+<span class="source-line" id="L508"><a class="line-no" href="#L508">508</a>            // 其它约束都是硬约束，这里只验证 seqlen_q 满足最低要求，不满足则不调度</span>
+<span class="source-line" id="L509"><a class="line-no" href="#L509">509</a>            if (seqlen_q &lt; std::max(lookahead_tokens, 1)) {</span>
+<span class="source-line" id="L510"><a class="line-no" href="#L510">510</a>                break;</span>
+<span class="source-line" id="L511"><a class="line-no" href="#L511">511</a>            }</span>
+<span class="source-line" id="L512"><a class="line-no" href="#L512">512</a></span>
+<span class="source-line" id="L513"><a class="line-no" href="#L513">513</a>            // —— 确定调度该 seq，以下集中提交所有带副作用的操作 ——</span>
+<span class="source-line" id="L514"><a class="line-no" href="#L514">514</a></span>
+<span class="source-line" id="L515"><a class="line-no" href="#L515">515</a>            num_batched_tokens += (seqlen_q + cp_align - 1) / cp_align * cp_align;</span>
+<span class="source-line" id="L516"><a class="line-no" href="#L516">516</a></span>
+<span class="source-line" id="L517"><a class="line-no" href="#L517">517</a>            TORCH_CHECK(seq-&gt;schedule.status == SequenceStatus::WAITING, &quot;status &quot;, int(seq-&gt;schedule.status));</span>
+<span class="source-line" id="L518"><a class="line-no" href="#L518">518</a>            if (seq-&gt;cache.block_table.empty()) {</span>
+<span class="source-line" id="L519"><a class="line-no" href="#L519">519</a>                acquire.allocate_seq(*seq);</span>
+<span class="source-line" id="L520"><a class="line-no" href="#L520">520</a>            }</span>
+<span class="source-line" id="L521"><a class="line-no" href="#L521">521</a></span>
+<span class="source-line" id="L522"><a class="line-no" href="#L522">522</a>            if (!is_chunked) {</span>
+<span class="source-line" id="L523"><a class="line-no" href="#L523">523</a>                num_curr_seqs += 1;</span>
+<span class="source-line" id="L524"><a class="line-no" href="#L524">524</a>                seq-&gt;schedule.status = SequenceStatus::RUNNING;</span>
+<span class="source-line" id="L525"><a class="line-no" href="#L525">525</a>                allocate_mtp_info_slot(*seq);</span>
+<span class="source-line" id="L526"><a class="line-no" href="#L526">526</a>            }</span>
+<span class="source-line" id="L527"><a class="line-no" href="#L527">527</a></span>
+<span class="source-line" id="L528"><a class="line-no" href="#L528">528</a>            scheduled.push_back(seq);</span>
+<span class="source-line" id="L529"><a class="line-no" href="#L529">529</a>            TORCH_CHECK(seqlen_q + seq-&gt;cache.num_tokens &lt;= seq-&gt;get_len(), SPRINT_VARS(&quot;Expected seqlen_q + seq-&gt;cache.num_tokens &quot;</span>
+<span class="source-line" id="L530"><a class="line-no" href="#L530">530</a>                                                                                        &quot;&lt;= seq-&gt;get_len()&quot;,</span>
+<span class="source-line" id="L531"><a class="line-no" href="#L531">531</a>                                                                                seqlen_q, seq-&gt;cache.num_tokens, seq-&gt;get_len()));</span>
+<span class="source-line" id="L532"><a class="line-no" href="#L532">532</a>            seqlens_q.push_back(seqlen_q);</span>
+<span class="source-line" id="L533"><a class="line-no" href="#L533">533</a>            if (is_chunked) {</span>
+<span class="source-line" id="L534"><a class="line-no" href="#L534">534</a>                auto current_prefill_len = seqlen_q + seq-&gt;cache.num_tokens;</span>
+<span class="source-line" id="L535"><a class="line-no" href="#L535">535</a>                seq-&gt;schedule.chunked_rest_len = seq-&gt;get_len() - current_prefill_len;</span>
+<span class="source-line" id="L536"><a class="line-no" href="#L536">536</a></span>
+<span class="source-line" id="L537"><a class="line-no" href="#L537">537</a>                tokens_chunked_prefill_remaining += seq-&gt;get_len();</span>
+<span class="source-line" id="L538"><a class="line-no" href="#L538">538</a>            } else {</span>
+<span class="source-line" id="L539"><a class="line-no" href="#L539">539</a>                seq-&gt;schedule.chunked_rest_len = 0;</span>
+<span class="source-line" id="L540"><a class="line-no" href="#L540">540</a>            }</span>
+<span class="source-line" id="L541"><a class="line-no" href="#L541">541</a>            waiting.pop_front();</span>
+<span class="source-line" id="L542"><a class="line-no" href="#L542">542</a></span>
+<span class="source-line" id="L543"><a class="line-no" href="#L543">543</a>            if (is_chunked &amp;&amp; engine_type == EngineType::NORMAL) {</span>
+<span class="source-line" id="L544"><a class="line-no" href="#L544">544</a>                break;</span>
+<span class="source-line" id="L545"><a class="line-no" href="#L545">545</a>            }</span>
+<span class="source-line" id="L546"><a class="line-no" href="#L546">546</a>        }</span>
+<span class="source-line" id="L547"><a class="line-no" href="#L547">547</a></span>
+<span class="source-line" id="L548"><a class="line-no" href="#L548">548</a>        if (engine_type != EngineType::NORMAL || !scheduled.empty() || !ignored_seqs.empty()) {</span>
+<span class="source-line" id="L549"><a class="line-no" href="#L549">549</a>            return _make_outputs(std::move(scheduled), true, num_batched_tokens, {}, std::move(ignored_seqs), std::move(seqlens_q), 0);</span></code></pre></main></body></html>

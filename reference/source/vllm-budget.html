@@ -1,0 +1,72 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>vllm-budget</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>vllm-budget</h1><p class="source-note">vllm/vllm/v1/core/sched/scheduler.py · ef9339e · L800–871 · <a href="https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/core/sched/scheduler.py#L800-L871">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>vllm · Apache-2.0</strong><p>Copyright contributors to the vLLM project。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L800"><a class="line-no" href="#L800">800</a>        # First, schedule the RUNNING requests.</span>
+<span class="source-line" id="L801"><a class="line-no" href="#L801">801</a>        req_index = 0</span>
+<span class="source-line" id="L802"><a class="line-no" href="#L802">802</a>        while req_index &lt; len(self.running) and token_budget &gt; 0:</span>
+<span class="source-line" id="L803"><a class="line-no" href="#L803">803</a>            request = self.running[req_index]</span>
+<span class="source-line" id="L804"><a class="line-no" href="#L804">804</a>            if input_budget &lt;= draft_slots:</span>
+<span class="source-line" id="L805"><a class="line-no" href="#L805">805</a>                break</span>
+<span class="source-line" id="L806"><a class="line-no" href="#L806">806</a></span>
+<span class="source-line" id="L807"><a class="line-no" href="#L807">807</a>            if (</span>
+<span class="source-line" id="L808"><a class="line-no" href="#L808">808</a>                request.num_output_placeholders &gt; 0</span>
+<span class="source-line" id="L809"><a class="line-no" href="#L809">809</a>                # This is (num_computed_tokens + 1) - (num_output_placeholders - 1).</span>
+<span class="source-line" id="L810"><a class="line-no" href="#L810">810</a>                # Since output placeholders are also included in the computed tokens</span>
+<span class="source-line" id="L811"><a class="line-no" href="#L811">811</a>                # count, we subtract (num_output_placeholders - 1) to remove any draft</span>
+<span class="source-line" id="L812"><a class="line-no" href="#L812">812</a>                # tokens, so that we can be sure no further steps are needed even if</span>
+<span class="source-line" id="L813"><a class="line-no" href="#L813">813</a>                # they are all rejected.</span>
+<span class="source-line" id="L814"><a class="line-no" href="#L814">814</a>                and request.num_computed_tokens + 2 - request.num_output_placeholders</span>
+<span class="source-line" id="L815"><a class="line-no" href="#L815">815</a>                &gt;= request.num_prompt_tokens + request.max_tokens</span>
+<span class="source-line" id="L816"><a class="line-no" href="#L816">816</a>            ):</span>
+<span class="source-line" id="L817"><a class="line-no" href="#L817">817</a>                # Async scheduling: Avoid scheduling an extra step when we are sure that</span>
+<span class="source-line" id="L818"><a class="line-no" href="#L818">818</a>                # the previous step has reached request.max_tokens. We don&#x27;t schedule</span>
+<span class="source-line" id="L819"><a class="line-no" href="#L819">819</a>                # partial draft tokens since this prevents uniform decode optimizations.</span>
+<span class="source-line" id="L820"><a class="line-no" href="#L820">820</a>                req_index += 1</span>
+<span class="source-line" id="L821"><a class="line-no" href="#L821">821</a>                continue</span>
+<span class="source-line" id="L822"><a class="line-no" href="#L822">822</a></span>
+<span class="source-line" id="L823"><a class="line-no" href="#L823">823</a>            if self.current_step &lt; request.next_decode_eligible_step:</span>
+<span class="source-line" id="L824"><a class="line-no" href="#L824">824</a>                # V2+PP+async: enforce `pp_size` steps between same-req decodes</span>
+<span class="source-line" id="L825"><a class="line-no" href="#L825">825</a>                # to match worker-side sampled-tokens broadcast slot ring cadence.</span>
+<span class="source-line" id="L826"><a class="line-no" href="#L826">826</a>                req_index += 1</span>
+<span class="source-line" id="L827"><a class="line-no" href="#L827">827</a>                continue</span>
+<span class="source-line" id="L828"><a class="line-no" href="#L828">828</a></span>
+<span class="source-line" id="L829"><a class="line-no" href="#L829">829</a>            if defer_prefills and request.is_prefill_chunk:</span>
+<span class="source-line" id="L830"><a class="line-no" href="#L830">830</a>                # DP prefill balancing: defer this in-progress prefill chunk to a</span>
+<span class="source-line" id="L831"><a class="line-no" href="#L831">831</a>                # cadence-aligned step; decodes still run to fill this step.</span>
+<span class="source-line" id="L832"><a class="line-no" href="#L832">832</a>                req_index += 1</span>
+<span class="source-line" id="L833"><a class="line-no" href="#L833">833</a>                continue</span>
+<span class="source-line" id="L834"><a class="line-no" href="#L834">834</a></span>
+<span class="source-line" id="L835"><a class="line-no" href="#L835">835</a>            if (</span>
+<span class="source-line" id="L836"><a class="line-no" href="#L836">836</a>                self.ec_connector is not None</span>
+<span class="source-line" id="L837"><a class="line-no" href="#L837">837</a>                and request.mm_features</span>
+<span class="source-line" id="L838"><a class="line-no" href="#L838">838</a>                and not self.ec_connector.ensure_cache_available(</span>
+<span class="source-line" id="L839"><a class="line-no" href="#L839">839</a>                    request,</span>
+<span class="source-line" id="L840"><a class="line-no" href="#L840">840</a>                    request.num_computed_tokens - request.num_output_placeholders,</span>
+<span class="source-line" id="L841"><a class="line-no" href="#L841">841</a>                )</span>
+<span class="source-line" id="L842"><a class="line-no" href="#L842">842</a>            ):</span>
+<span class="source-line" id="L843"><a class="line-no" href="#L843">843</a>                req_index += 1</span>
+<span class="source-line" id="L844"><a class="line-no" href="#L844">844</a>                continue</span>
+<span class="source-line" id="L845"><a class="line-no" href="#L845">845</a></span>
+<span class="source-line" id="L846"><a class="line-no" href="#L846">846</a>            num_new_tokens = (</span>
+<span class="source-line" id="L847"><a class="line-no" href="#L847">847</a>                request.num_tokens_with_spec</span>
+<span class="source-line" id="L848"><a class="line-no" href="#L848">848</a>                + request.num_output_placeholders</span>
+<span class="source-line" id="L849"><a class="line-no" href="#L849">849</a>                - request.num_computed_tokens</span>
+<span class="source-line" id="L850"><a class="line-no" href="#L850">850</a>            )</span>
+<span class="source-line" id="L851"><a class="line-no" href="#L851">851</a>            if 0 &lt; long_prefill_token_threshold &lt; num_new_tokens:</span>
+<span class="source-line" id="L852"><a class="line-no" href="#L852">852</a>                num_new_tokens = long_prefill_token_threshold</span>
+<span class="source-line" id="L853"><a class="line-no" href="#L853">853</a>            num_new_tokens = min(</span>
+<span class="source-line" id="L854"><a class="line-no" href="#L854">854</a>                num_new_tokens, token_budget, input_budget - draft_slots</span>
+<span class="source-line" id="L855"><a class="line-no" href="#L855">855</a>            )</span>
+<span class="source-line" id="L856"><a class="line-no" href="#L856">856</a></span>
+<span class="source-line" id="L857"><a class="line-no" href="#L857">857</a>            # Make sure the input position does not exceed the max model len.</span>
+<span class="source-line" id="L858"><a class="line-no" href="#L858">858</a>            # This is necessary when using spec decoding.</span>
+<span class="source-line" id="L859"><a class="line-no" href="#L859">859</a>            num_new_tokens = min(</span>
+<span class="source-line" id="L860"><a class="line-no" href="#L860">860</a>                num_new_tokens,</span>
+<span class="source-line" id="L861"><a class="line-no" href="#L861">861</a>                self.max_model_len</span>
+<span class="source-line" id="L862"><a class="line-no" href="#L862">862</a>                - request.num_computed_tokens</span>
+<span class="source-line" id="L863"><a class="line-no" href="#L863">863</a>                - self.num_sampled_tokens_per_step,</span>
+<span class="source-line" id="L864"><a class="line-no" href="#L864">864</a>            )</span>
+<span class="source-line" id="L865"><a class="line-no" href="#L865">865</a></span>
+<span class="source-line" id="L866"><a class="line-no" href="#L866">866</a>            # Apply Mamba alignment before encoder caps.</span>
+<span class="source-line" id="L867"><a class="line-no" href="#L867">867</a>            if self.need_mamba_block_aligned_split:</span>
+<span class="source-line" id="L868"><a class="line-no" href="#L868">868</a>                num_new_tokens = self._mamba_block_aligned_split(</span>
+<span class="source-line" id="L869"><a class="line-no" href="#L869">869</a>                    request, num_new_tokens</span>
+<span class="source-line" id="L870"><a class="line-no" href="#L870">870</a>                )</span>
+<span class="source-line" id="L871"><a class="line-no" href="#L871">871</a></span></code></pre></main></body></html>

@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>05 · 张量并行</title>
+<link rel="stylesheet" href="../assets/course.css?v=2">
+<link rel="stylesheet" href="../assets/deep-dive.css"><link rel="stylesheet" href="../assets/dimensions.css"></head>
+<body>
+<div class="page">
+
+<nav class="lesson-nav">
+  <a href="0004-attention-slot-mapping.html">← 04 Attention 层</a>
+  <a class="home" href="../index.html">课程索引</a>
+  <a class="right" href="0006-cuda-graph.html">06 CUDA Graph →</a>
+</nav>
+
+<header>
+  <p class="kicker">课程 05 · 并行</p>
+  <h1>两张卡，一次前向</h1>
+  <p class="dek">nano-vllm 的张量并行只有 156 行 <code>linear.py</code> 加一个共享内存通道——但它把 TP 的核心取舍全部暴露出来了：切什么、在哪同步、怎么传指令。</p>
+  <p class="meta">
+    <span>约 55 分钟</span>
+    <span>源码：<code>layers/linear.py</code> · <code>layers/embed_head.py</code> · <code>model_runner.py</code></span>
+    <span>前置：04</span>
+  </p>
+</header><!-- DIMENSION-DETAIL-START --><section class="dimension-inline"><h2>把维度变化拆到每一步</h2><ol><li>先确认数学权重[in,out]与PyTorch weight[out,in]的方向。</li><li>输出列分片需要拼接；输入行分片的同形partial需要相加。</li></ol><figure class="dimension-figure"><div class="diagram-scroll" tabindex="0" role="region" aria-label="列并行 concat 与行并行 sum，窄屏可横向滚动"><img src="../assets/diagrams/dim-tp.svg" alt="列并行 concat 与行并行 sum。用完整小矩阵展示输入复制、输出列分片、concat，以及下游输入行分片产生同形partial后求和；权重采用数学[in,out]约定。" loading="lazy"></div><figcaption>用完整小矩阵展示输入复制、输出列分片、concat，以及下游输入行分片产生同形partial后求和；权重采用数学[in,out]约定。<a href="../assets/diagrams/dim-tp.svg" target="_blank" rel="noopener">打开原图放大 ↗</a></figcaption></figure><p><a href="../reference/dimension-walkthrough.html#tp"><strong>打开元素级图解：矩阵、轴、索引与可点击反例 →</strong></a></p></section><!-- DIMENSION-DETAIL-END -->
+
+<h2><span class="num">1</span>为什么要切</h2>
+
+<p>一张卡放不下 70B 模型时，最直接的办法是把权重切开。但切开的方式不止一种，代价也不一样：</p>
+
+<table>
+  <thead><tr><th>方式</th><th>切什么</th><th>通信时机</th><th>适合</th></tr></thead>
+  <tbody>
+    <tr><td>张量并行 TP</td><td>每层的权重矩阵</td><td>每层都要通信</td><td>单机多卡、低延迟</td></tr>
+    <tr><td>流水并行 PP</td><td>按层切成若干段</td><td>只在段边界通信</td><td>跨机、模型极深</td></tr>
+    <tr><td>专家并行 EP</td><td>MoE 的专家分给不同卡</td><td>token 路由时 all-to-all</td><td>MoE 模型</td></tr>
+  </tbody>
+</table>
+
+<p>nano-vllm 选 TP：<strong>每张卡都跑完整的层序列，但每层只持有 1/N 的权重</strong>。好处是延迟低（不需要等别的卡的层），坏处是每层末尾都要同步一次。</p>
+
+<h2><span class="num">2</span>进程模型：一个主控 + N 个工人</h2>
+
+<pre><code><span class="file">llm_engine.py · L24–31</span>ctx = mp.get_context("spawn")
+for i in range(1, config.tensor_parallel_size):
+    event = ctx.Event()
+    process = ctx.Process(target=ModelRunner, args=(config, i, event))
+    process.start()
+    self.ps.append(process)
+    self.events.append(event)
+self.model_runner = ModelRunner(config, 0, self.events)   <span class="cm"># rank 0 留在主进程</span></code></pre>
+
+<p>rank 0 不另起进程，它既当调度器又当一张卡。其它 rank 在 <code>__init__</code> 末尾直接进入 <code>loop()</code>[<a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3/nanovllm/engine/model_runner.py#L61-L89">L61–89</a>]，等指令：</p>
+
+<pre><code>def loop(self):
+    while True:
+        method_name, args = self.read_shm()     <span class="cm"># 阻塞等事件</span>
+        self.call(method_name, *args)
+        if method_name == "exit": break
+
+def read_shm(self):
+    self.event.wait()                                       <span class="cm"># ① 等事件</span>
+    n = int.from_bytes(self.shm.buf[0:4], "little")         <span class="cm"># ② 读长度</span>
+    method_name, *args = pickle.loads(self.shm.buf[4:n+4])  <span class="cm"># ③ 反序列化</span>
+    self.event.clear()                                      <span class="cm"># ④ 复位</span>
+    return method_name, args</code></pre>
+
+<p>这条通道很有意思：<strong>用共享内存传数据，用 Event 传「有新数据」这个事实</strong>。没有 socket、没有 RPC 框架，1 MB 的 <code>shared_memory</code> 加一个 multiprocessing Event 就够了。</p>
+
+<h3>为什么序列要自定义 <code>__getstate__</code></h3>
+
+<pre><code><span class="file">sequence.py · L72–83</span>def __getstate__(self):
+    last_state = self.last_token if not self.is_prefill else self.token_ids
+    return (self.num_tokens, self.num_prompt_tokens, self.num_cached_tokens,
+            self.num_scheduled_tokens, self.block_table, last_state)</code></pre>
+
+<p>worker 侧只需要这 6 个字段。如果直接 pickle 整个 <code>Sequence</code>，<code>token_ids</code> 列表会跟着走——decode 时那是几千个 int，每条序列每步都传一遍，共享内存会被撑爆（1 MB），序列化开销也会盖过计算收益。<strong>自定义 <code>__getstate__</code> 是分布式推理里最常见的优化之一。</strong></p>
+
+<div class="warn">
+  <span class="label">硬编码的坑</span>
+  <p><code>tcp://localhost:2333</code> 是写死的。同一台机器跑两个实例会端口冲突；跨机部署必须改。生产框架（vLLM）会从环境变量读 <code>MASTER_ADDR/PORT</code>。</p>
+</div>
+
+<h2><span class="num">3</span>四种切法，四种权重加载</h2>
+
+<p><code>linear.py</code> 的类不是随便分的，每个都对应一种「矩阵怎么切、权重怎么从 HF checkpoint 里取」。</p>
+
+<table>
+  <thead><tr><th>类</th><th>切法</th><th>通信</th><th>典型用途</th></tr></thead>
+  <tbody>
+    <tr><td><code>ReplicatedLinear</code></td><td>不切，每卡一份</td><td>无</td><td>小矩阵、bias</td></tr>
+    <tr><td><code>ColumnParallelLinear</code></td><td>按输出维切</td><td>无（输出天然分片）</td><td>QKV、gate/up</td></tr>
+    <tr><td><code>RowParallelLinear</code></td><td>按输入维切</td><td><strong>all-reduce</strong></td><td>attention 输出、down</td></tr>
+    <tr><td><code>VocabParallelEmbedding</code></td><td>按词表切</td><td>all-reduce（mask 后）</td><td>embedding</td></tr>
+  </tbody>
+</table>
+
+<pre><code><span class="file">linear.py · L131–156</span>class RowParallelLinear(LinearBase):
+    def __init__(self, input_size, output_size, bias=False):
+        tp_size = dist.get_world_size()
+        super().__init__(divide(input_size, tp_size), output_size, bias, 1)
+
+    def forward(self, x):
+        y = F.linear(x, self.weight, self.bias if self.tp_rank == 0 else None)
+        if self.tp_size &gt; 1:
+            dist.all_reduce(y)          <span class="cm"># 每卡算出部分和，加在一起</span>
+        return y</code></pre>
+
+<p>为什么 RowParallel 必须 all-reduce？因为它按<strong>输入维</strong>切：每张卡拿到的 <code>x</code> 是输入的一部分，算出的是完整输出的<strong>部分和</strong>。只有加起来才是真正的结果。而 ColumnParallel 按输出维切，每张卡的输出本来就是最终结果的一段，不需要通信。</p>
+
+<div class="key">
+  <span class="label">QKV 为什么单独一个类</span>
+  <p>Qwen3 的 Q、K、V 三个矩阵在 checkpoint 里是三个张量，但推理时可以拼成一个大矩阵一次算完（减少 kernel 次数）。<code>QKVParallelLinear</code> 的 <code>weight_loader</code> 负责把三个张量按 head 切好再拼进同一个参数——注意 <strong>KV head 数通常比 Q head 少</strong>（GQA），所以切分尺寸不一样。</p>
+</div>
+
+<h2><span class="num">4</span>一次前向里的通信量</h2>
+
+<p>以 Qwen3-0.6B、2 卡为例，每层有两处 all-reduce：attention 的 <code>o_proj</code> 之后、MLP 的 <code>down_proj</code> 之后。每处传的是 <code>[tokens, hidden]</code> 的激活值。</p>
+
+<ul>
+  <li>prefill 时 tokens 很多（比如 4096），通信量大但计算量更大，<strong>通信能被计算掩盖</strong>。</li>
+  <li>decode 时 tokens 很少（比如 32），通信量小但<strong>延迟敏感</strong>——每层都要等 all-reduce 完成才能继续。</li>
+</ul>
+
+<p>这解释了 TP 的一个反直觉现象：<strong>decode 阶段 TP 的加速比往往达不到线性</strong>，因为每步固定要做 2L 次 all-reduce，而计算量只有 O(bs)。这也是为什么大模型 decode 更偏好 EP 或 PD 分离。</p>
+
+<h2><span class="num">5</span>练习 A · 算一次 all-reduce 的代价</h2>
+
+<p>Qwen3-0.6B：28 层，hidden = 1024，激活用 bf16。TP=2，decode 时 batch = 16。每次 all-reduce 要传多少字节？一轮 decode 总共传多少？</p>
+
+<details>
+  <summary>展开：答案</summary>
+  <p>每处 all-reduce 的张量是 <code>[16, 1024]</code> bf16 = 16 × 1024 × 2 = <strong>32 KiB</strong>。</p>
+  <p>每层 2 处，28 层 → 56 处 → 56 × 32 KiB ≈ <strong>1.75 MiB</strong> 每轮 decode。</p>
+  <p>按 4070 Ti 的 NVLink 缺失、走 PCIe 的情况（约 10 GB/s 有效），光通信就要约 0.18 ms——而 decode 一步的总时间通常在 10–30 ms 量级，所以 1% 左右，可以接受。<strong>但换成 4096 token 的 prefill，激活是 4096×1024 的百倍量级，通信就会变成瓶颈。</strong></p>
+</details>
+
+<h2><span class="num">6</span>练习 B · 闭卷测验</h2>
+
+<div class="quiz" data-quiz="tp"></div>
+
+<h2><span class="num">7</span>练习 C · 代码寻宝</h2>
+
+<details>
+  <summary>1. <code>ColumnParallelLinear.weight_loader</code> 为什么要 <code>narrow(tp_dim, start_idx, shard_size)</code>？</summary>
+  <p>HF 的 checkpoint 存的是完整权重，每张卡只该拿自己那一片。按 <code>tp_rank * shard_size</code> 起 offset 取一段，就得到本 rank 的分片——注意切的是<strong>输出维</strong>（<code>tp_dim=0</code>）。</p>
+</details>
+
+<details>
+  <summary>2. 为什么 <code>RowParallelLinear</code> 的 bias 只在 rank 0 上加？</summary>
+  <p>bias 是完整向量，不是部分和。如果每张卡都加一遍，all-reduce 之后 bias 会被加 N 次。所以只在 rank 0 加，再让 all-reduce 把它摊开——这是「bias 只加一次」的标准做法。</p>
+</details>
+
+<details>
+  <summary>3. <code>VocabParallelEmbedding.forward</code> 里 <code>mask</code> 的作用是什么？</summary>
+  <p>每张卡只持有词表的一段。不在本段里的 token id 要屏蔽掉（置 0），否则会越界取到别的 embedding。屏蔽后 all-reduce，各卡的贡献拼成完整结果——这是词表并行的标准 pattern。</p>
+</details>
+
+<h2><span class="num">8</span>面试复述卡</h2>
+
+<p><strong>「TP 和 PP 怎么选？」</strong></p>
+
+<details>
+  <summary>展开：30 秒版本</summary>
+  <p>「TP 切的是每一层的矩阵，每层都要 all-reduce，所以对带宽敏感、适合单机 NVLink；它的优点是延迟低，所有卡同时在算同一批 token。PP 切的是层，卡与卡之间只有边界激活要传，通信少但会出现流水线气泡，适合跨机和超深模型。实际的大模型推理通常是 TP + PP + EP 组合：机内 TP、机间 PP、MoE 用 EP。」</p>
+</details>
+
+<div class="ask-teacher">
+  <p><strong>可以问</strong>：「没有 NVLink 的消费卡上 TP 还有意义吗？」我们会用你的 4070 Ti 实测一次，数字比结论更有说服力。</p>
+</div>
+
+<footer class="lesson-footer">
+  <h3>主源与延伸</h3>
+  <ul>
+    <li><strong>主源（必读）</strong>：<code>layers/linear.py</code> 全文 + <code>model_runner.py</code> L15–89。</li>
+    <li>延伸：Megatron-LM 的 TP 论文（列并行 / 行并行的原始定义）。</li>
+    <li>术语：<a href="../reference/glossary.html#compute">Tensor Parallelism</a>。</li>
+    <li>下一课：<strong>06 · CUDA Graph 与 torch.compile</strong>——decode 为什么要「录一遍再回放」。</li>
+  </ul>
+</footer>
+
+</div>
+<script src="../assets/quiz.js?v=2"></script>
+<script>
+CourseQuiz.mount('[data-quiz="tp"]', {
+  questions: [
+    {
+      q: '`RowParallelLinear` 的 forward 末尾必须做 all-reduce，是因为：',
+      options: [
+        '它按输入维切分，输出是部分和',
+        '它按输出维切分，结果是分段',
+        '它的 bias 需要同步到各卡',
+        '它的权重每张卡都不一样'
+      ],
+      answer: 0,
+      why: ' 输入被切开，每张卡只算了一部分乘积，只有把部分和加起来才是完整输出。'
+    },
+    {
+      q: 'nano-vllm 用共享内存传 `Sequence` 时只序列化 6 个字段，是为了：',
+      options: [
+        '避免 token_ids 列表拖慢传输',
+        '兼容不同版本的 pickle',
+        '防止 worker 修改主进程状态',
+        '减少 GPU 显存的占用'
+      ],
+      answer: 0,
+      why: ' decode 时 token_ids 有几千个元素，每条序列每步都传会撑爆 1 MB 的共享内存并拖慢序列化。'
+    },
+    {
+      q: 'rank 0 在 nano-vllm 里的特殊之处是：',
+      options: [
+        '它不参与前向计算',
+        '它同时承担调度与计算',
+        '它只负责分词与解码',
+        '它持有完整模型的权重'
+      ],
+      answer: 1,
+      why: ' `LLMEngine` 在主进程里直接构造 `ModelRunner(config, 0, ...)`，rank 0 既是主控也是一张卡。'
+    },
+    {
+      q: 'TP 在 decode 阶段加速比常常达不到线性，主要因为：',
+      options: [
+        '每层固定的 all-reduce 延迟',
+        'decode 的 token 数量太多',
+        'KV cache 无法跨卡共享',
+        '权重加载没有做切分'
+      ],
+      answer: 0,
+      why: ' decode 每步计算量只有 O(bs)，但每层两次 all-reduce 是固定开销，通信占比随 batch 变小而上升。'
+    },
+    {
+      q: '`QKVParallelLinear` 比普通列并行多了什么？',
+      options: [
+        '把 Q/K/V 三段权重拼进一个矩阵',
+        '对 KV head 做额外的复制',
+        '在 forward 里多一次 all-reduce',
+        '把词表也一起切分'
+      ],
+      answer: 0,
+      why: ' checkpoint 里 Q/K/V 是三个张量，它按 head 切好后拼成一个参数，前向只做一次大矩阵乘。'
+    }
+  ]
+});
+</script>
+<script src="../assets/highlight.js?v=2"></script>
+<script src="../assets/lesson-ui.js?v=2"></script>
+</body>
+</html>

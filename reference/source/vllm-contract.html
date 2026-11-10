@@ -1,0 +1,35 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>vllm-contract</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>vllm-contract</h1><p class="source-note">vllm/vllm/v1/core/sched/output.py · ef9339e · L245–279 · <a href="https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/core/sched/output.py#L245-L279">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>vllm · Apache-2.0</strong><p>Copyright contributors to the vLLM project。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L245"><a class="line-no" href="#L245">245</a>class SchedulerOutput:</span>
+<span class="source-line" id="L246"><a class="line-no" href="#L246">246</a>    # list of the requests that are scheduled for the first time.</span>
+<span class="source-line" id="L247"><a class="line-no" href="#L247">247</a>    # We cache the request&#x27;s data in each worker process, so that we don&#x27;t</span>
+<span class="source-line" id="L248"><a class="line-no" href="#L248">248</a>    # need to re-send it every scheduling step.</span>
+<span class="source-line" id="L249"><a class="line-no" href="#L249">249</a>    scheduled_new_reqs: list[NewRequestData]</span>
+<span class="source-line" id="L250"><a class="line-no" href="#L250">250</a>    # list of the requests that have been scheduled before.</span>
+<span class="source-line" id="L251"><a class="line-no" href="#L251">251</a>    # Since the request&#x27;s data is already cached in the worker processes,</span>
+<span class="source-line" id="L252"><a class="line-no" href="#L252">252</a>    # we only send the diff to minimize the communication cost.</span>
+<span class="source-line" id="L253"><a class="line-no" href="#L253">253</a>    scheduled_cached_reqs: CachedRequestData</span>
+<span class="source-line" id="L254"><a class="line-no" href="#L254">254</a></span>
+<span class="source-line" id="L255"><a class="line-no" href="#L255">255</a>    # req_id -&gt; num_scheduled_tokens</span>
+<span class="source-line" id="L256"><a class="line-no" href="#L256">256</a>    # Number of tokens scheduled for each request.</span>
+<span class="source-line" id="L257"><a class="line-no" href="#L257">257</a>    num_scheduled_tokens: dict[str, int]</span>
+<span class="source-line" id="L258"><a class="line-no" href="#L258">258</a>    # Total number of tokens scheduled for all requests.</span>
+<span class="source-line" id="L259"><a class="line-no" href="#L259">259</a>    # Equal to sum(num_scheduled_tokens.values())</span>
+<span class="source-line" id="L260"><a class="line-no" href="#L260">260</a>    total_num_scheduled_tokens: int</span>
+<span class="source-line" id="L261"><a class="line-no" href="#L261">261</a>    # req_id -&gt; spec_token_ids</span>
+<span class="source-line" id="L262"><a class="line-no" href="#L262">262</a>    # If a request does not have any spec decode tokens, it will not be</span>
+<span class="source-line" id="L263"><a class="line-no" href="#L263">263</a>    # included in the dictionary.</span>
+<span class="source-line" id="L264"><a class="line-no" href="#L264">264</a>    scheduled_spec_decode_tokens: dict[str, list[int]]</span>
+<span class="source-line" id="L265"><a class="line-no" href="#L265">265</a>    # req_id -&gt; encoder input indices that need processing.</span>
+<span class="source-line" id="L266"><a class="line-no" href="#L266">266</a>    # E.g., if a request has [0, 1], it could mean the vision encoder needs</span>
+<span class="source-line" id="L267"><a class="line-no" href="#L267">267</a>    # to process that the request&#x27;s 0-th and 1-th images in the current step.</span>
+<span class="source-line" id="L268"><a class="line-no" href="#L268">268</a>    scheduled_encoder_inputs: dict[str, list[int]]</span>
+<span class="source-line" id="L269"><a class="line-no" href="#L269">269</a></span>
+<span class="source-line" id="L270"><a class="line-no" href="#L270">270</a>    # Request IDs that are finished in between the previous and the current</span>
+<span class="source-line" id="L271"><a class="line-no" href="#L271">271</a>    # steps. This is used to notify the workers about the finished requests</span>
+<span class="source-line" id="L272"><a class="line-no" href="#L272">272</a>    # so that they can free the cached states for those requests.</span>
+<span class="source-line" id="L273"><a class="line-no" href="#L273">273</a>    finished_req_ids: set[str]</span>
+<span class="source-line" id="L274"><a class="line-no" href="#L274">274</a>    # list of mm_hash strings associated with the encoder outputs to be</span>
+<span class="source-line" id="L275"><a class="line-no" href="#L275">275</a>    # freed from the encoder cache.</span>
+<span class="source-line" id="L276"><a class="line-no" href="#L276">276</a>    free_encoder_mm_hashes: list[str]</span>
+<span class="source-line" id="L277"><a class="line-no" href="#L277">277</a></span>
+<span class="source-line" id="L278"><a class="line-no" href="#L278">278</a>    # Request-local CPU payload updates: None releases a consumed input; a</span>
+<span class="source-line" id="L279"><a class="line-no" href="#L279">279</a>    # payload restores it for re-encoding after KV-load rollback. GPU embeddings</span></code></pre></main></body></html>

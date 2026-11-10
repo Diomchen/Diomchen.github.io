@@ -1,0 +1,20 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>nano-cache-allocation</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>nano-cache-allocation</h1><p class="source-note">nano-vllm/nanovllm/engine/model_runner.py · bb823b3 · L103–122 · <a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/engine/model_runner.py#L103-L122">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>nano-vllm · MIT</strong><p>Copyright (c) 2025 Xingkai Yu。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/nano-vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L103"><a class="line-no" href="#L103">103</a>    def allocate_kv_cache(self):</span>
+<span class="source-line" id="L104"><a class="line-no" href="#L104">104</a>        config = self.config</span>
+<span class="source-line" id="L105"><a class="line-no" href="#L105">105</a>        hf_config = config.hf_config</span>
+<span class="source-line" id="L106"><a class="line-no" href="#L106">106</a>        free, total = torch.cuda.mem_get_info()</span>
+<span class="source-line" id="L107"><a class="line-no" href="#L107">107</a>        used = total - free</span>
+<span class="source-line" id="L108"><a class="line-no" href="#L108">108</a>        peak = torch.cuda.memory_stats()[&quot;allocated_bytes.all.peak&quot;]</span>
+<span class="source-line" id="L109"><a class="line-no" href="#L109">109</a>        current = torch.cuda.memory_stats()[&quot;allocated_bytes.all.current&quot;]</span>
+<span class="source-line" id="L110"><a class="line-no" href="#L110">110</a>        num_kv_heads = hf_config.num_key_value_heads // self.world_size</span>
+<span class="source-line" id="L111"><a class="line-no" href="#L111">111</a>        head_dim = getattr(hf_config, &quot;head_dim&quot;, hf_config.hidden_size // hf_config.num_attention_heads)</span>
+<span class="source-line" id="L112"><a class="line-no" href="#L112">112</a>        block_bytes = 2 * hf_config.num_hidden_layers * self.block_size * num_kv_heads * head_dim * hf_config.dtype.itemsize</span>
+<span class="source-line" id="L113"><a class="line-no" href="#L113">113</a>        config.num_kvcache_blocks = int(total * config.gpu_memory_utilization - used - peak + current) // block_bytes</span>
+<span class="source-line" id="L114"><a class="line-no" href="#L114">114</a>        assert config.num_kvcache_blocks &gt; 0</span>
+<span class="source-line" id="L115"><a class="line-no" href="#L115">115</a>        self.kv_cache = torch.empty(2, hf_config.num_hidden_layers, config.num_kvcache_blocks, self.block_size, num_kv_heads, head_dim)</span>
+<span class="source-line" id="L116"><a class="line-no" href="#L116">116</a>        layer_id = 0</span>
+<span class="source-line" id="L117"><a class="line-no" href="#L117">117</a>        for module in self.model.modules():</span>
+<span class="source-line" id="L118"><a class="line-no" href="#L118">118</a>            if hasattr(module, &quot;k_cache&quot;) and hasattr(module, &quot;v_cache&quot;):</span>
+<span class="source-line" id="L119"><a class="line-no" href="#L119">119</a>                module.k_cache = self.kv_cache[0, layer_id]</span>
+<span class="source-line" id="L120"><a class="line-no" href="#L120">120</a>                module.v_cache = self.kv_cache[1, layer_id]</span>
+<span class="source-line" id="L121"><a class="line-no" href="#L121">121</a>                layer_id += 1</span>
+<span class="source-line" id="L122"><a class="line-no" href="#L122">122</a></span></code></pre></main></body></html>

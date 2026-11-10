@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>06 · CUDA Graph 与 torch.compile</title>
+<link rel="stylesheet" href="../assets/course.css?v=2">
+</head>
+<body>
+<div class="page">
+
+<nav class="lesson-nav">
+  <a href="0005-tensor-parallel.html">← 05 张量并行</a>
+  <a class="home" href="../index.html">课程索引</a>
+  <a class="right" href="0007-run-and-measure.html">07 跑起来并测量 →</a>
+</nav>
+
+<header>
+  <p class="kicker">课程 06 · 执行优化</p>
+  <h1>把整个 decode 录成一张图</h1>
+  <p class="dek">decode 每步只算一个 token，却要启动几百个 kernel。CUDA Graph 的做法是：把这一整套启动序列录下来，之后一次回放。</p>
+  <p class="meta">
+    <span>约 45 分钟</span>
+    <span>源码：<code>model_runner.py</code> L195–257 · <code>layers/sampler.py</code></span>
+    <span>前置：04</span>
+  </p>
+</header>
+
+<h2><span class="num">1</span>先算一笔启动开销</h2>
+
+<p>Qwen3-0.6B 有 28 层，每层十来个算子（线性、RMSNorm、RoPE、attention、silu…）。一次 decode 前向大约要启动 <strong>300–500 个 CUDA kernel</strong>。</p>
+
+<ul>
+  <li>每个 kernel 的 CPU 侧启动开销约 <strong>3–8 µs</strong>（Python + PyTorch dispatcher + driver）。</li>
+  <li>400 个 kernel × 5 µs ≈ <strong>2 ms</strong>。<strong>纯启动</strong>，还没算 GPU 真正干活的时间。</li>
+</ul>
+
+<p>而 0.6B 模型在 4070 Ti 上 decode 一步的计算可能只有 1–2 ms。也就是说，<strong>一半以上的时间花在「告诉 GPU 要干什么」上</strong>，而不是「GPU 在干」。大模型更夸张：kernel 更多，但单个 kernel 的利用率也不高。</p>
+
+<div class="key">
+  <span class="label">核心矛盾</span>
+  <p>decode 的 batch 很小、每层计算量很小，所以 <strong>CPU 侧的启动开销无法被 GPU 的计算掩盖</strong>。CUDA Graph 就是把「启动」这件事一次性摊销掉。</p>
+</div>
+
+<h2><span class="num">2</span>录图：固定 shape，固定地址</h2>
+
+<pre><code><span class="file">model_runner.py · L222–248</span>max_bs = min(self.config.max_num_seqs, 512)
+self.graph_bs = [1, 2, 4, 8] + list(range(16, max_bs + 1, 16))
+self.graphs = {}
+self.graph_pool = None
+
+for bs in reversed(self.graph_bs):                 <span class="cm"># 从大到小录</span>
+    graph = torch.cuda.CUDAGraph()
+    set_context(False, slot_mapping=slot_mapping[:bs], context_lens=context_lens[:bs], block_tables=block_tables[:bs])
+    outputs[:bs] = self.model(input_ids[:bs], positions[:bs])    <span class="cm"># warmup</span>
+    with torch.cuda.graph(graph, self.graph_pool):
+        outputs[:bs] = self.model(input_ids[:bs], positions[:bs])    <span class="cm"># capture</span>
+    if self.graph_pool is None:
+        self.graph_pool = graph.pool()                 <span class="cm"># 复用显存池</span>
+    self.graphs[bs] = graph
+    torch.cuda.synchronize()</code></pre>
+
+<p>几个必须理解的设计：</p>
+
+<ol>
+  <li><strong>只录固定的 batch size</strong>：<code>[1, 2, 4, 8]</code> + 16 的倍数直到 512。CUDA Graph 要求 shape 和显存地址完全固定，所以只能为每个可能的 bs 录一张图。</li>
+  <li><strong>为什么先 warmup 再 capture</strong>：第一次跑会触发显存分配、cuBLAS 算法选择、kernel 编译缓存。这些必须在录制前完成，否则会被录进图里（或者直接报错）。</li>
+  <li><strong>为什么 <code>reversed</code></strong>：先录最大的 bs，显存池一次分配到位；后面的小图复用同一个 pool，不会因为碎片而失败。</li>
+  <li><strong><code>slot_mapping</code> 预填 -1</strong>：实际 bs 小于录制 bs 时，多出来的槽位保持 -1，Triton kernel 第一行就 <code>if slot == -1: return</code>——padding 不产生任何写入。</li>
+</ol>
+
+<h2><span class="num">3</span>回放：把输入拷进固定 buffer</h2>
+
+<pre><code><span class="file">model_runner.py · L195–212</span>def run_model(self, input_ids, positions, is_prefill):
+    if is_prefill or self.enforce_eager or input_ids.size(0) &gt; 512:
+        return self.model.compute_logits(self.model(input_ids, positions))   <span class="cm"># 正常路径</span>
+    bs = input_ids.size(0)
+    graph = self.graphs[next(x for x in self.graph_bs if x &gt;= bs)]   <span class="cm"># 找最小够用的图</span>
+    graph_vars = self.graph_vars
+    graph_vars["input_ids"][:bs] = input_ids          <span class="cm"># 拷进固定 buffer</span>
+    graph_vars["positions"][:bs] = positions
+    graph_vars["slot_mapping"].fill_(-1)
+    graph_vars["slot_mapping"][:bs] = context.slot_mapping
+    graph_vars["context_lens"].zero_()
+    graph_vars["context_lens"][:bs] = context.context_lens
+    graph_vars["block_tables"][:bs, :context.block_tables.size(1)] = context.block_tables
+    graph.replay()                                     <span class="cm"># 一次回放</span>
+    return self.model.compute_logits(graph_vars["outputs"][:bs])</code></pre>
+
+<p>注意最后一行：<code>compute_logits</code> 在图<strong>外面</strong>。因为 logits 计算的 shape 随 batch 变化，而且后面紧跟采样，没必要录进去。</p>
+
+<p>回放的代价是几次 <code>copy_</code>：把新输入搬进固定的 buffer。相比省下的几百次 kernel launch，这点拷贝可以忽略。</p>
+
+<table>
+  <thead><tr><th>路径</th><th>条件</th><th>为什么</th></tr></thead>
+  <tbody>
+    <tr><td>eager</td><td>prefill</td><td>shape 每次都不同，录图无意义</td></tr>
+    <tr><td>eager</td><td><code>enforce_eager=True</code></td><td>调试 / 兼容性 / 显存紧张</td></tr>
+    <tr><td>eager</td><td>bs &gt; 512</td><td>超过录制上限</td></tr>
+    <tr><td>graph</td><td>其余 decode</td><td>shape 稳定，启动开销占比最高</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">4</span>torch.compile：只编译采样</h2>
+
+<pre><code><span class="file">layers/sampler.py · L7–12</span>@torch.compile
+def forward(self, logits, temperatures):
+    logits = logits.float().div_(temperatures.unsqueeze(dim=1))
+    probs = torch.softmax(logits, dim=-1)
+    sample_tokens = probs.div_(torch.empty_like(probs).exponential_(1).clamp_min_(1e-10)).argmax(dim=-1)
+    return sample_tokens</code></pre>
+
+<p>为什么只编译这一步？三个原因：</p>
+
+<ul>
+  <li><strong>shape 稳定</strong>：<code>[bs, vocab]</code>，bs 只有几十种取值，编译缓存命中率高。</li>
+  <li><strong>算子链长</strong>：div → softmax → exp → div → argmax，每一步都是独立的 kernel，编译后可以融合。</li>
+  <li><strong>不碰模型</strong>：整模型 <code>torch.compile</code> 会遇到 attention 的自定义 kernel、动态 shape、CUDA Graph 冲突，风险远大于收益（vLLM 走的是另一条路，见第 10 课）。</li>
+</ul>
+
+<h2><span class="num">5</span>enforce_eager 该不该开</h2>
+
+<table>
+  <thead><tr><th></th><th><code>enforce_eager=True</code></th><th><code>False</code>（默认）</th></tr></thead>
+  <tbody>
+    <tr><td>启动速度</td><td>快（不录图）</td><td>慢（要为每个 bs 录一遍）</td></tr>
+    <tr><td>显存占用</td><td>低</td><td>高（图池 + 静态 buffer）</td></tr>
+    <tr><td>decode 速度</td><td>慢（每步几百次 launch）</td><td>快</td></tr>
+    <tr><td>调试</td><td>可以用 pdb / print</td><td>几乎无法调试（图内不可断点）</td></tr>
+  </tbody>
+</table>
+
+<p>所以 <code>example.py</code> 用 <code>enforce_eager=True</code> 是为了让第一次跑的人别被录图卡住；<code>bench.py</code> 用 <code>False</code> 是为了跑出真实性能。<strong>面试里能说清「为什么默认开着、什么时候关掉」，比记住参数名有用得多。</strong></p>
+
+<div class="warn">
+  <span class="label">显存陷阱</span>
+  <p>开图之后，KV cache 的可用块数会变少——因为图池和静态 buffer 先占了显存。<code>allocate_kv_cache</code> 是在 <code>capture_cudagraph</code> <strong>之前</strong>调用的，所以它算出来的 <code>num_kvcache_blocks</code> 并不知道后面还要占多少。这是 nano-vllm 的一个简化，vLLM 会先 profile 再分配。</p>
+</div>
+
+<h2><span class="num">6</span>练习 A · 估算收益</h2>
+
+<p>假设 400 个 kernel、每个启动 5 µs，decode 一步的计算时间 1.5 ms。开图后能省多少？加速比是多少？</p>
+
+<details>
+  <summary>展开：答案</summary>
+  <p>启动开销 400 × 5 µs = 2.0 ms。开图前一步约 1.5 + 2.0 = 3.5 ms；开图后只剩回放开销（约 0.05 ms）+ 计算 = 1.55 ms。</p>
+  <p>加速比约 <strong>2.3×</strong>。这就是为什么「decode 开图」几乎是所有推理框架的标配，而 prefill 不需要——prefill 的计算量大，启动开销被掩盖了。</p>
+</details>
+
+<h2><span class="num">7</span>练习 B · 闭卷测验</h2>
+
+<div class="quiz" data-quiz="cudagraph"></div>
+
+<h2><span class="num">8</span>练习 C · 代码寻宝</h2>
+
+<details>
+  <summary>1. 为什么 <code>graph_bs</code> 是 <code>[1,2,4,8] + range(16, ..., 16)</code> 这种非均匀分布？</summary>
+  <p>小 batch 是延迟敏感场景的高频取值（1、2、4、8 很常见），必须精确匹配；大 batch 之间差异不大，用 16 的步长向上取整就够了。<code>next(x for x in graph_bs if x &gt;= bs)</code> 总是找最小够用的图，最多浪费十几个空槽。</p>
+</details>
+
+<details>
+  <summary>2. 如果 decode 时 batch 突然从 4 涨到 5，会发生什么？</summary>
+  <p>会选 bs=8 的那张图，把 5 条序列的输入拷进前 5 行，剩下 3 行保持 -1 / 0 padding。Triton 的 KV 写入 kernel 会因为 slot == -1 跳过它们；注意力的 varlen 不适用（这是 decode 的 with_kvcache 路径），padding 的 <code>context_lens</code> 为 0，不会影响有效行。</p>
+</details>
+
+<details>
+  <summary>3. 为什么 <code>compute_logits</code> 不放进图里？</summary>
+  <p>它的输出 shape 是 <code>[bs, vocab]</code>，且 bs 会变；更重要的是它后面紧跟采样，采样在 CPU 侧做（<code>.tolist()</code>），把图断开反而更灵活。图内只放「shape 固定、纯 GPU」的部分。</p>
+</details>
+
+<h2><span class="num">9</span>面试复述卡</h2>
+
+<p><strong>「CUDA Graph 为什么能加速 decode，prefill 为什么不用？」</strong></p>
+
+<details>
+  <summary>展开：30 秒版本</summary>
+  <p>「decode 每步的计算量小，但 kernel 数量不变，所以 CPU 侧的启动开销占了很大比例。CUDA Graph 把固定的静态图和显存地址录下来，之后一次 replay 就把几百次 launch 变成一次。prefill 的 shape 每次都不同（prompt 长度不定），录不了图；而且 prefill 计算量大，启动开销本来就被掩盖了。」</p>
+</details>
+
+<div class="ask-teacher">
+  <p><strong>可以追问</strong>：「图能录 attention 吗？」能，但要保证 attention kernel 的输入地址固定——这就是为什么 nano-vllm 把 slot_mapping / block_tables 都做成预分配的静态 buffer。</p>
+</div>
+
+<footer class="lesson-footer">
+  <h3>主源与延伸</h3>
+  <ul>
+    <li><strong>主源（必读）</strong>：<code>model_runner.py</code> L195–257。</li>
+    <li>PyTorch 文档：<em>CUDA Graphs</em>（torch.cuda.graph 的限制与 pool 复用）。</li>
+    <li>术语：<a href="../reference/glossary.html#compute">CUDA Graph</a>。</li>
+    <li>下一课：<strong>07 · 跑起来并测量</strong>——在 WSL 上跑通，拿到你自己的数字。</li>
+  </ul>
+</footer>
+
+</div>
+<script src="../assets/quiz.js?v=2"></script>
+<script>
+CourseQuiz.mount('[data-quiz="cudagraph"]', {
+  questions: [
+    {
+      q: 'CUDA Graph 对输入的要求是：',
+      options: [
+        'shape 与显存地址都固定',
+        'shape 可以变，地址要固定',
+        '地址可以变，shape 要固定',
+        '两者都可以动态变化'
+      ],
+      answer: 0,
+      why: ' 图记录的是 kernel 启动序列和指针；shape 或地址一变，图就失效。所以要用固定 buffer + 拷入。'
+    },
+    {
+      q: '录制前先跑一次 warmup，是为了：',
+      options: [
+        '让 GPU 温度稳定下来',
+        '提前完成显存分配与算法选择',
+        '校验模型权重是否正确',
+        '计算 KV cache 的块数'
+      ],
+      answer: 1,
+      why: ' 首次运行会触发显存分配、cuBLAS 选算法、kernel 首次编译；这些副作用不能进图。'
+    },
+    {
+      q: '按从大到小的顺序录制各 batch size 的图，好处是：',
+      options: [
+        '让显存池一次分配到位',
+        '减少图的加载时间',
+        '让小的图优先回放',
+        '避免 CUDA 上下文切换'
+      ],
+      answer: 0,
+      why: ' 最大的图先建好共享 pool，后续小图直接复用，避免碎片导致录制失败。'
+    },
+    {
+      q: 'prefill 不走 CUDA Graph 的原因是：',
+      options: [
+        'prefill 的 shape 每次不同',
+        'prefill 不需要启动 kernel',
+        'prefill 一定在 CPU 上算',
+        'prefill 的输出维度固定'
+      ],
+      answer: 0,
+      why: ' prompt 长度不定，压平后的 token 总数每轮都变，无法用一张静态图覆盖。'
+    },
+    {
+      q: '`enforce_eager=True` 最典型的用途是：',
+      options: [
+        '调试与显存紧张时降级',
+        '提高 decode 的吞吐',
+        '让 prefill 也走图',
+        '减少模型权重的占用'
+      ],
+      answer: 0,
+      why: ' 关掉图后每一步都是普通 PyTorch 调用，可以断点、打印；代价是 decode 变慢。'
+    }
+  ]
+});
+</script>
+<script src="../assets/highlight.js?v=2"></script>
+<script src="../assets/lesson-ui.js?v=2"></script>
+</body>
+</html>

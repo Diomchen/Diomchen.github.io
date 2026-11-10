@@ -1,0 +1,107 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>vllm-allocation</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>vllm-allocation</h1><p class="source-note">vllm/vllm/v1/core/sched/scheduler.py · ef9339e · L922–1028 · <a href="https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/core/sched/scheduler.py#L922-L1028">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>vllm · Apache-2.0</strong><p>Copyright contributors to the vLLM project。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L922"><a class="line-no" href="#L922">922</a>                        request,</span>
+<span class="source-line" id="L923"><a class="line-no" href="#L923">923</a>                        num_new_tokens,</span>
+<span class="source-line" id="L924"><a class="line-no" href="#L924">924</a>                        num_lookahead_tokens=self.num_lookahead_tokens,</span>
+<span class="source-line" id="L925"><a class="line-no" href="#L925">925</a>                    )</span>
+<span class="source-line" id="L926"><a class="line-no" href="#L926">926</a></span>
+<span class="source-line" id="L927"><a class="line-no" href="#L927">927</a>                    if new_blocks is not None:</span>
+<span class="source-line" id="L928"><a class="line-no" href="#L928">928</a>                        # The request can be scheduled.</span>
+<span class="source-line" id="L929"><a class="line-no" href="#L929">929</a>                        break</span>
+<span class="source-line" id="L930"><a class="line-no" href="#L930">930</a></span>
+<span class="source-line" id="L931"><a class="line-no" href="#L931">931</a>                    if (</span>
+<span class="source-line" id="L932"><a class="line-no" href="#L932">932</a>                        self.connector is not None</span>
+<span class="source-line" id="L933"><a class="line-no" href="#L933">933</a>                        and self.connector.has_pending_block_frees()</span>
+<span class="source-line" id="L934"><a class="line-no" href="#L934">934</a>                    ):</span>
+<span class="source-line" id="L935"><a class="line-no" href="#L935">935</a>                        break</span>
+<span class="source-line" id="L936"><a class="line-no" href="#L936">936</a></span>
+<span class="source-line" id="L937"><a class="line-no" href="#L937">937</a>                    # The request cannot be scheduled.</span>
+<span class="source-line" id="L938"><a class="line-no" href="#L938">938</a>                    # Preempt the lowest-priority request.</span>
+<span class="source-line" id="L939"><a class="line-no" href="#L939">939</a>                    if self.policy == SchedulingPolicy.PRIORITY:</span>
+<span class="source-line" id="L940"><a class="line-no" href="#L940">940</a>                        preempted_req = max(</span>
+<span class="source-line" id="L941"><a class="line-no" href="#L941">941</a>                            self.running,</span>
+<span class="source-line" id="L942"><a class="line-no" href="#L942">942</a>                            key=lambda r: (r.priority, r.arrival_time),</span>
+<span class="source-line" id="L943"><a class="line-no" href="#L943">943</a>                        )</span>
+<span class="source-line" id="L944"><a class="line-no" href="#L944">944</a>                    else:</span>
+<span class="source-line" id="L945"><a class="line-no" href="#L945">945</a>                        preempted_req = self.running[-1]</span>
+<span class="source-line" id="L946"><a class="line-no" href="#L946">946</a></span>
+<span class="source-line" id="L947"><a class="line-no" href="#L947">947</a>                    # A deferred free will not help with immediate allocation.</span>
+<span class="source-line" id="L948"><a class="line-no" href="#L948">948</a>                    if not self._request_blocks_can_be_freed(preempted_req):</span>
+<span class="source-line" id="L949"><a class="line-no" href="#L949">949</a>                        break</span>
+<span class="source-line" id="L950"><a class="line-no" href="#L950">950</a></span>
+<span class="source-line" id="L951"><a class="line-no" href="#L951">951</a>                    if self.policy == SchedulingPolicy.PRIORITY:</span>
+<span class="source-line" id="L952"><a class="line-no" href="#L952">952</a>                        victim_index = self.running.index(preempted_req)</span>
+<span class="source-line" id="L953"><a class="line-no" href="#L953">953</a>                        del self.running[victim_index]</span>
+<span class="source-line" id="L954"><a class="line-no" href="#L954">954</a>                        if victim_index &lt; req_index:</span>
+<span class="source-line" id="L955"><a class="line-no" href="#L955">955</a>                            req_index -= 1</span>
+<span class="source-line" id="L956"><a class="line-no" href="#L956">956</a></span>
+<span class="source-line" id="L957"><a class="line-no" href="#L957">957</a>                        if preempted_req in scheduled_running_reqs:</span>
+<span class="source-line" id="L958"><a class="line-no" href="#L958">958</a>                            preempted_req_id = preempted_req.request_id</span>
+<span class="source-line" id="L959"><a class="line-no" href="#L959">959</a>                            scheduled_running_reqs.remove(preempted_req)</span>
+<span class="source-line" id="L960"><a class="line-no" href="#L960">960</a>                            restored = num_scheduled_tokens.pop(preempted_req_id)</span>
+<span class="source-line" id="L961"><a class="line-no" href="#L961">961</a>                            token_budget += restored</span>
+<span class="source-line" id="L962"><a class="line-no" href="#L962">962</a>                            input_budget += restored + draft_slots</span>
+<span class="source-line" id="L963"><a class="line-no" href="#L963">963</a>                            req_to_new_blocks.pop(preempted_req_id)</span>
+<span class="source-line" id="L964"><a class="line-no" href="#L964">964</a>                            scheduled_spec_decode_tokens.pop(preempted_req_id, None)</span>
+<span class="source-line" id="L965"><a class="line-no" href="#L965">965</a>                            preempted_encoder_inputs = scheduled_encoder_inputs.pop(</span>
+<span class="source-line" id="L966"><a class="line-no" href="#L966">966</a>                                preempted_req_id, None</span>
+<span class="source-line" id="L967"><a class="line-no" href="#L967">967</a>                            )</span>
+<span class="source-line" id="L968"><a class="line-no" href="#L968">968</a>                            if preempted_encoder_inputs:</span>
+<span class="source-line" id="L969"><a class="line-no" href="#L969">969</a>                                # Restore encoder compute budget if the preempted</span>
+<span class="source-line" id="L970"><a class="line-no" href="#L970">970</a>                                # request had encoder inputs scheduled in this step.</span>
+<span class="source-line" id="L971"><a class="line-no" href="#L971">971</a>                                num_embeds_to_restore = sum(</span>
+<span class="source-line" id="L972"><a class="line-no" href="#L972">972</a>                                    preempted_req.get_num_encoder_embeds(i)</span>
+<span class="source-line" id="L973"><a class="line-no" href="#L973">973</a>                                    for i in preempted_encoder_inputs</span>
+<span class="source-line" id="L974"><a class="line-no" href="#L974">974</a>                                )</span>
+<span class="source-line" id="L975"><a class="line-no" href="#L975">975</a>                                encoder_compute_budget += num_embeds_to_restore</span>
+<span class="source-line" id="L976"><a class="line-no" href="#L976">976</a>                    else:</span>
+<span class="source-line" id="L977"><a class="line-no" href="#L977">977</a>                        preempted_req = self.running.pop()</span>
+<span class="source-line" id="L978"><a class="line-no" href="#L978">978</a></span>
+<span class="source-line" id="L979"><a class="line-no" href="#L979">979</a>                    self._preempt_request(</span>
+<span class="source-line" id="L980"><a class="line-no" href="#L980">980</a>                        preempted_req,</span>
+<span class="source-line" id="L981"><a class="line-no" href="#L981">981</a>                        scheduled_timestamp,</span>
+<span class="source-line" id="L982"><a class="line-no" href="#L982">982</a>                        drop_stale_output=self.requires_kv_delivery,</span>
+<span class="source-line" id="L983"><a class="line-no" href="#L983">983</a>                    )</span>
+<span class="source-line" id="L984"><a class="line-no" href="#L984">984</a>                    preempted_reqs.append(preempted_req)</span>
+<span class="source-line" id="L985"><a class="line-no" href="#L985">985</a>                    if preempted_req == request:</span>
+<span class="source-line" id="L986"><a class="line-no" href="#L986">986</a>                        # No more request to preempt. Cannot schedule this request.</span>
+<span class="source-line" id="L987"><a class="line-no" href="#L987">987</a>                        break</span>
+<span class="source-line" id="L988"><a class="line-no" href="#L988">988</a></span>
+<span class="source-line" id="L989"><a class="line-no" href="#L989">989</a>            if new_blocks is None:</span>
+<span class="source-line" id="L990"><a class="line-no" href="#L990">990</a>                if (</span>
+<span class="source-line" id="L991"><a class="line-no" href="#L991">991</a>                    self.policy == SchedulingPolicy.PRIORITY</span>
+<span class="source-line" id="L992"><a class="line-no" href="#L992">992</a>                    and request.status == RequestStatus.PREEMPTED</span>
+<span class="source-line" id="L993"><a class="line-no" href="#L993">993</a>                ):</span>
+<span class="source-line" id="L994"><a class="line-no" href="#L994">994</a>                    # The request was the lowest-priority running request and</span>
+<span class="source-line" id="L995"><a class="line-no" href="#L995">995</a>                    # preempted itself. The requests after it have higher</span>
+<span class="source-line" id="L996"><a class="line-no" href="#L996">996</a>                    # priority and may still fit (it just freed its blocks);</span>
+<span class="source-line" id="L997"><a class="line-no" href="#L997">997</a>                    # it was removed from `self.running`, so `req_index`</span>
+<span class="source-line" id="L998"><a class="line-no" href="#L998">998</a>                    # already points at the next one.</span>
+<span class="source-line" id="L999"><a class="line-no" href="#L999">999</a>                    continue</span>
+<span class="source-line" id="L1000"><a class="line-no" href="#L1000">1000</a>                # Cannot schedule this request.</span>
+<span class="source-line" id="L1001"><a class="line-no" href="#L1001">1001</a>                break</span>
+<span class="source-line" id="L1002"><a class="line-no" href="#L1002">1002</a></span>
+<span class="source-line" id="L1003"><a class="line-no" href="#L1003">1003</a>            # Schedule the request.</span>
+<span class="source-line" id="L1004"><a class="line-no" href="#L1004">1004</a>            scheduled_running_reqs.append(request)</span>
+<span class="source-line" id="L1005"><a class="line-no" href="#L1005">1005</a>            prefill_scheduled |= request.is_prefill_chunk</span>
+<span class="source-line" id="L1006"><a class="line-no" href="#L1006">1006</a>            request_id = request.request_id</span>
+<span class="source-line" id="L1007"><a class="line-no" href="#L1007">1007</a>            req_to_new_blocks[request_id] = new_blocks</span>
+<span class="source-line" id="L1008"><a class="line-no" href="#L1008">1008</a>            num_scheduled_tokens[request_id] = num_new_tokens</span>
+<span class="source-line" id="L1009"><a class="line-no" href="#L1009">1009</a>            token_budget -= num_new_tokens</span>
+<span class="source-line" id="L1010"><a class="line-no" href="#L1010">1010</a>            input_budget -= num_new_tokens + draft_slots</span>
+<span class="source-line" id="L1011"><a class="line-no" href="#L1011">1011</a>            req_index += 1</span>
+<span class="source-line" id="L1012"><a class="line-no" href="#L1012">1012</a>            drafts_needed = drafts_needed or not self._drafts_unused(</span>
+<span class="source-line" id="L1013"><a class="line-no" href="#L1013">1013</a>                request, request.num_computed_tokens, num_new_tokens</span>
+<span class="source-line" id="L1014"><a class="line-no" href="#L1014">1014</a>            )</span>
+<span class="source-line" id="L1015"><a class="line-no" href="#L1015">1015</a></span>
+<span class="source-line" id="L1016"><a class="line-no" href="#L1016">1016</a>            # Speculative decode related.</span>
+<span class="source-line" id="L1017"><a class="line-no" href="#L1017">1017</a>            if request.spec_token_ids:</span>
+<span class="source-line" id="L1018"><a class="line-no" href="#L1018">1018</a>                num_scheduled_spec_tokens = (</span>
+<span class="source-line" id="L1019"><a class="line-no" href="#L1019">1019</a>                    num_new_tokens</span>
+<span class="source-line" id="L1020"><a class="line-no" href="#L1020">1020</a>                    + request.num_computed_tokens</span>
+<span class="source-line" id="L1021"><a class="line-no" href="#L1021">1021</a>                    - request.num_tokens</span>
+<span class="source-line" id="L1022"><a class="line-no" href="#L1022">1022</a>                    - request.num_output_placeholders</span>
+<span class="source-line" id="L1023"><a class="line-no" href="#L1023">1023</a>                )</span>
+<span class="source-line" id="L1024"><a class="line-no" href="#L1024">1024</a>                if num_scheduled_spec_tokens &gt; 0:</span>
+<span class="source-line" id="L1025"><a class="line-no" href="#L1025">1025</a>                    spec_token_ids = request.spec_token_ids</span>
+<span class="source-line" id="L1026"><a class="line-no" href="#L1026">1026</a>                    if len(spec_token_ids) &gt; num_scheduled_spec_tokens:</span>
+<span class="source-line" id="L1027"><a class="line-no" href="#L1027">1027</a>                        spec_token_ids = spec_token_ids[:num_scheduled_spec_tokens]</span>
+<span class="source-line" id="L1028"><a class="line-no" href="#L1028">1028</a>                    scheduled_spec_decode_tokens[request.request_id] = spec_token_ids</span></code></pre></main></body></html>

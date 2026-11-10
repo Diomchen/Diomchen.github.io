@@ -1,0 +1,31 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>vllm-engine-step</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>vllm-engine-step</h1><p class="source-note">vllm/vllm/v1/engine/core.py · ef9339e · L710–740 · <a href="https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/engine/core.py#L710-L740">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>vllm · Apache-2.0</strong><p>Copyright contributors to the vLLM project。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L710"><a class="line-no" href="#L710">710</a>    def step(self) -&gt; tuple[dict[int, EngineCoreOutputs], bool]:</span>
+<span class="source-line" id="L711"><a class="line-no" href="#L711">711</a>        &quot;&quot;&quot;Schedule, execute, and make output.</span>
+<span class="source-line" id="L712"><a class="line-no" href="#L712">712</a></span>
+<span class="source-line" id="L713"><a class="line-no" href="#L713">713</a>        Returns tuple of outputs and a flag indicating whether the model</span>
+<span class="source-line" id="L714"><a class="line-no" href="#L714">714</a>        was executed.</span>
+<span class="source-line" id="L715"><a class="line-no" href="#L715">715</a>        &quot;&quot;&quot;</span>
+<span class="source-line" id="L716"><a class="line-no" href="#L716">716</a>        # Check for any requests remaining in the scheduler - unfinished,</span>
+<span class="source-line" id="L717"><a class="line-no" href="#L717">717</a>        # or finished and not yet removed from the batch.</span>
+<span class="source-line" id="L718"><a class="line-no" href="#L718">718</a>        if not self.scheduler.has_requests():</span>
+<span class="source-line" id="L719"><a class="line-no" href="#L719">719</a>            return {}, False</span>
+<span class="source-line" id="L720"><a class="line-no" href="#L720">720</a>        scheduler_output = self.scheduler.schedule(self._should_throttle_prefills())</span>
+<span class="source-line" id="L721"><a class="line-no" href="#L721">721</a>        future = self.model_executor.execute_model(scheduler_output, non_block=True)</span>
+<span class="source-line" id="L722"><a class="line-no" href="#L722">722</a>        grammar_output = self.scheduler.get_grammar_bitmask(scheduler_output)</span>
+<span class="source-line" id="L723"><a class="line-no" href="#L723">723</a>        with (</span>
+<span class="source-line" id="L724"><a class="line-no" href="#L724">724</a>            self.capture_iteration_details(scheduler_output) as iteration_details,</span>
+<span class="source-line" id="L725"><a class="line-no" href="#L725">725</a>            self.log_error_detail(scheduler_output),</span>
+<span class="source-line" id="L726"><a class="line-no" href="#L726">726</a>        ):</span>
+<span class="source-line" id="L727"><a class="line-no" href="#L727">727</a>            model_output = self._wait_for_output(future)</span>
+<span class="source-line" id="L728"><a class="line-no" href="#L728">728</a>            if model_output is None:</span>
+<span class="source-line" id="L729"><a class="line-no" href="#L729">729</a>                model_output = self.model_executor.sample_tokens(grammar_output)</span>
+<span class="source-line" id="L730"><a class="line-no" href="#L730">730</a></span>
+<span class="source-line" id="L731"><a class="line-no" href="#L731">731</a>        # Before processing the model output, process any aborts that happened</span>
+<span class="source-line" id="L732"><a class="line-no" href="#L732">732</a>        # during the model execution.</span>
+<span class="source-line" id="L733"><a class="line-no" href="#L733">733</a>        self._process_aborts_queue()</span>
+<span class="source-line" id="L734"><a class="line-no" href="#L734">734</a>        engine_core_outputs = self.scheduler.update_from_output(</span>
+<span class="source-line" id="L735"><a class="line-no" href="#L735">735</a>            scheduler_output, model_output</span>
+<span class="source-line" id="L736"><a class="line-no" href="#L736">736</a>        )</span>
+<span class="source-line" id="L737"><a class="line-no" href="#L737">737</a>        self._attach_iteration_details(engine_core_outputs, iteration_details)</span>
+<span class="source-line" id="L738"><a class="line-no" href="#L738">738</a>        self._attach_weight_version(engine_core_outputs)</span>
+<span class="source-line" id="L739"><a class="line-no" href="#L739">739</a></span>
+<span class="source-line" id="L740"><a class="line-no" href="#L740">740</a>        return engine_core_outputs, scheduler_output.total_num_scheduled_tokens &gt; 0</span></code></pre></main></body></html>

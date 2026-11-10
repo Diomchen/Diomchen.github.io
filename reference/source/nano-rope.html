@@ -1,0 +1,45 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>nano-rope</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>nano-rope</h1><p class="source-note">nano-vllm/nanovllm/layers/rotary_embedding.py · bb823b3 · L6–50 · <a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/layers/rotary_embedding.py#L6-L50">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>nano-vllm · MIT</strong><p>Copyright (c) 2025 Xingkai Yu。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/nano-vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L6"><a class="line-no" href="#L6">6</a>def apply_rotary_emb(</span>
+<span class="source-line" id="L7"><a class="line-no" href="#L7">7</a>    x: torch.Tensor,</span>
+<span class="source-line" id="L8"><a class="line-no" href="#L8">8</a>    cos: torch.Tensor,</span>
+<span class="source-line" id="L9"><a class="line-no" href="#L9">9</a>    sin: torch.Tensor,</span>
+<span class="source-line" id="L10"><a class="line-no" href="#L10">10</a>) -&gt; torch.Tensor:</span>
+<span class="source-line" id="L11"><a class="line-no" href="#L11">11</a>    x1, x2 = torch.chunk(x.float(), 2, dim=-1)</span>
+<span class="source-line" id="L12"><a class="line-no" href="#L12">12</a>    y1 = x1 * cos - x2 * sin</span>
+<span class="source-line" id="L13"><a class="line-no" href="#L13">13</a>    y2 = x2 * cos + x1 * sin</span>
+<span class="source-line" id="L14"><a class="line-no" href="#L14">14</a>    return torch.cat((y1, y2), dim=-1).to(x.dtype)</span>
+<span class="source-line" id="L15"><a class="line-no" href="#L15">15</a></span>
+<span class="source-line" id="L16"><a class="line-no" href="#L16">16</a></span>
+<span class="source-line" id="L17"><a class="line-no" href="#L17">17</a>class RotaryEmbedding(nn.Module):</span>
+<span class="source-line" id="L18"><a class="line-no" href="#L18">18</a></span>
+<span class="source-line" id="L19"><a class="line-no" href="#L19">19</a>    def __init__(</span>
+<span class="source-line" id="L20"><a class="line-no" href="#L20">20</a>        self,</span>
+<span class="source-line" id="L21"><a class="line-no" href="#L21">21</a>        head_size: int,</span>
+<span class="source-line" id="L22"><a class="line-no" href="#L22">22</a>        rotary_dim: int,</span>
+<span class="source-line" id="L23"><a class="line-no" href="#L23">23</a>        max_position_embeddings: int,</span>
+<span class="source-line" id="L24"><a class="line-no" href="#L24">24</a>        base: float,</span>
+<span class="source-line" id="L25"><a class="line-no" href="#L25">25</a>    ) -&gt; None:</span>
+<span class="source-line" id="L26"><a class="line-no" href="#L26">26</a>        super().__init__()</span>
+<span class="source-line" id="L27"><a class="line-no" href="#L27">27</a>        self.head_size = head_size</span>
+<span class="source-line" id="L28"><a class="line-no" href="#L28">28</a>        assert rotary_dim == head_size</span>
+<span class="source-line" id="L29"><a class="line-no" href="#L29">29</a>        inv_freq = 1.0 / (base**(torch.arange(0, rotary_dim, 2, dtype=torch.float) / rotary_dim))</span>
+<span class="source-line" id="L30"><a class="line-no" href="#L30">30</a>        t = torch.arange(max_position_embeddings, dtype=torch.float)</span>
+<span class="source-line" id="L31"><a class="line-no" href="#L31">31</a>        freqs = torch.einsum(&quot;i,j -&gt; ij&quot;, t, inv_freq)</span>
+<span class="source-line" id="L32"><a class="line-no" href="#L32">32</a>        cos = freqs.cos()</span>
+<span class="source-line" id="L33"><a class="line-no" href="#L33">33</a>        sin = freqs.sin()</span>
+<span class="source-line" id="L34"><a class="line-no" href="#L34">34</a>        cache = torch.cat((cos, sin), dim=-1).unsqueeze_(1)</span>
+<span class="source-line" id="L35"><a class="line-no" href="#L35">35</a>        self.register_buffer(&quot;cos_sin_cache&quot;, cache, persistent=False)</span>
+<span class="source-line" id="L36"><a class="line-no" href="#L36">36</a></span>
+<span class="source-line" id="L37"><a class="line-no" href="#L37">37</a>    @torch.compile</span>
+<span class="source-line" id="L38"><a class="line-no" href="#L38">38</a>    def forward(</span>
+<span class="source-line" id="L39"><a class="line-no" href="#L39">39</a>        self,</span>
+<span class="source-line" id="L40"><a class="line-no" href="#L40">40</a>        positions: torch.Tensor,</span>
+<span class="source-line" id="L41"><a class="line-no" href="#L41">41</a>        query: torch.Tensor,</span>
+<span class="source-line" id="L42"><a class="line-no" href="#L42">42</a>        key: torch.Tensor,</span>
+<span class="source-line" id="L43"><a class="line-no" href="#L43">43</a>    ) -&gt; tuple[torch.Tensor, torch.Tensor]:</span>
+<span class="source-line" id="L44"><a class="line-no" href="#L44">44</a>        cos_sin = self.cos_sin_cache[positions]</span>
+<span class="source-line" id="L45"><a class="line-no" href="#L45">45</a>        cos, sin = cos_sin.chunk(2, dim=-1)</span>
+<span class="source-line" id="L46"><a class="line-no" href="#L46">46</a>        query = apply_rotary_emb(query, cos, sin)</span>
+<span class="source-line" id="L47"><a class="line-no" href="#L47">47</a>        key = apply_rotary_emb(key, cos, sin)</span>
+<span class="source-line" id="L48"><a class="line-no" href="#L48">48</a>        return query, key</span>
+<span class="source-line" id="L49"><a class="line-no" href="#L49">49</a></span>
+<span class="source-line" id="L50"><a class="line-no" href="#L50">50</a></span></code></pre></main></body></html>

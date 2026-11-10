@@ -1,0 +1,50 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>nano-decoder</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>nano-decoder</h1><p class="source-note">nano-vllm/nanovllm/models/qwen3.py · bb823b3 · L120–169 · <a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/models/qwen3.py#L120-L169">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>nano-vllm · MIT</strong><p>Copyright (c) 2025 Xingkai Yu。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/nano-vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L120"><a class="line-no" href="#L120">120</a>class Qwen3DecoderLayer(nn.Module):</span>
+<span class="source-line" id="L121"><a class="line-no" href="#L121">121</a></span>
+<span class="source-line" id="L122"><a class="line-no" href="#L122">122</a>    def __init__(</span>
+<span class="source-line" id="L123"><a class="line-no" href="#L123">123</a>        self,</span>
+<span class="source-line" id="L124"><a class="line-no" href="#L124">124</a>        config: Qwen3Config,</span>
+<span class="source-line" id="L125"><a class="line-no" href="#L125">125</a>    ) -&gt; None:</span>
+<span class="source-line" id="L126"><a class="line-no" href="#L126">126</a>        super().__init__()</span>
+<span class="source-line" id="L127"><a class="line-no" href="#L127">127</a>        self.self_attn = Qwen3Attention(</span>
+<span class="source-line" id="L128"><a class="line-no" href="#L128">128</a>            hidden_size=config.hidden_size,</span>
+<span class="source-line" id="L129"><a class="line-no" href="#L129">129</a>            num_heads=config.num_attention_heads,</span>
+<span class="source-line" id="L130"><a class="line-no" href="#L130">130</a>            num_kv_heads=config.num_key_value_heads,</span>
+<span class="source-line" id="L131"><a class="line-no" href="#L131">131</a>            max_position=config.max_position_embeddings,</span>
+<span class="source-line" id="L132"><a class="line-no" href="#L132">132</a>            rms_norm_eps=config.rms_norm_eps,</span>
+<span class="source-line" id="L133"><a class="line-no" href="#L133">133</a>            qkv_bias=getattr(config, &#x27;attention_bias&#x27;, True),</span>
+<span class="source-line" id="L134"><a class="line-no" href="#L134">134</a>            head_dim=getattr(config, &#x27;head_dim&#x27;, None),</span>
+<span class="source-line" id="L135"><a class="line-no" href="#L135">135</a>            rope_theta=getattr(config, &quot;rope_theta&quot;, 1000000),</span>
+<span class="source-line" id="L136"><a class="line-no" href="#L136">136</a>            rope_scaling=getattr(config, &quot;rope_scaling&quot;, None),</span>
+<span class="source-line" id="L137"><a class="line-no" href="#L137">137</a>        )</span>
+<span class="source-line" id="L138"><a class="line-no" href="#L138">138</a>        self.mlp = Qwen3MLP(</span>
+<span class="source-line" id="L139"><a class="line-no" href="#L139">139</a>            hidden_size=config.hidden_size,</span>
+<span class="source-line" id="L140"><a class="line-no" href="#L140">140</a>            intermediate_size=config.intermediate_size,</span>
+<span class="source-line" id="L141"><a class="line-no" href="#L141">141</a>            hidden_act=config.hidden_act,</span>
+<span class="source-line" id="L142"><a class="line-no" href="#L142">142</a>        )</span>
+<span class="source-line" id="L143"><a class="line-no" href="#L143">143</a>        self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)</span>
+<span class="source-line" id="L144"><a class="line-no" href="#L144">144</a>        self.post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)</span>
+<span class="source-line" id="L145"><a class="line-no" href="#L145">145</a></span>
+<span class="source-line" id="L146"><a class="line-no" href="#L146">146</a>    def forward(</span>
+<span class="source-line" id="L147"><a class="line-no" href="#L147">147</a>        self,</span>
+<span class="source-line" id="L148"><a class="line-no" href="#L148">148</a>        positions: torch.Tensor,</span>
+<span class="source-line" id="L149"><a class="line-no" href="#L149">149</a>        hidden_states: torch.Tensor,</span>
+<span class="source-line" id="L150"><a class="line-no" href="#L150">150</a>        residual: torch.Tensor | None,</span>
+<span class="source-line" id="L151"><a class="line-no" href="#L151">151</a>    ) -&gt; tuple[torch.Tensor, torch.Tensor]:</span>
+<span class="source-line" id="L152"><a class="line-no" href="#L152">152</a>        if residual is None:</span>
+<span class="source-line" id="L153"><a class="line-no" href="#L153">153</a>            hidden_states, residual = self.input_layernorm(hidden_states), hidden_states</span>
+<span class="source-line" id="L154"><a class="line-no" href="#L154">154</a>        else:</span>
+<span class="source-line" id="L155"><a class="line-no" href="#L155">155</a>            hidden_states, residual = self.input_layernorm(hidden_states, residual)</span>
+<span class="source-line" id="L156"><a class="line-no" href="#L156">156</a>        hidden_states = self.self_attn(positions, hidden_states)</span>
+<span class="source-line" id="L157"><a class="line-no" href="#L157">157</a>        hidden_states, residual = self.post_attention_layernorm(hidden_states, residual)</span>
+<span class="source-line" id="L158"><a class="line-no" href="#L158">158</a>        hidden_states = self.mlp(hidden_states)</span>
+<span class="source-line" id="L159"><a class="line-no" href="#L159">159</a>        return hidden_states, residual</span>
+<span class="source-line" id="L160"><a class="line-no" href="#L160">160</a></span>
+<span class="source-line" id="L161"><a class="line-no" href="#L161">161</a></span>
+<span class="source-line" id="L162"><a class="line-no" href="#L162">162</a>class Qwen3Model(nn.Module):</span>
+<span class="source-line" id="L163"><a class="line-no" href="#L163">163</a></span>
+<span class="source-line" id="L164"><a class="line-no" href="#L164">164</a>    def __init__(</span>
+<span class="source-line" id="L165"><a class="line-no" href="#L165">165</a>        self,</span>
+<span class="source-line" id="L166"><a class="line-no" href="#L166">166</a>        config: Qwen3Config,</span>
+<span class="source-line" id="L167"><a class="line-no" href="#L167">167</a>    ) -&gt; None:</span>
+<span class="source-line" id="L168"><a class="line-no" href="#L168">168</a>        super().__init__()</span>
+<span class="source-line" id="L169"><a class="line-no" href="#L169">169</a>        self.embed_tokens = VocabParallelEmbedding(config.vocab_size, config.hidden_size)</span></code></pre></main></body></html>

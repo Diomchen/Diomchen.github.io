@@ -1,0 +1,41 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>deepinfer-add</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>deepinfer-add</h1><p class="source-note">deepinfer/deepinfer/engine/llm_engine.py · a679bb8 · L591–631 · <a href="https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/engine/llm_engine.py#L591-L631">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>deepinfer · Apache-2.0</strong><p>DeepInfer project and its contributors。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/deepinfer/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L591"><a class="line-no" href="#L591">591</a>        assert compressed_prompt_token_ids.shape[0] == prompt_token_ids.shape[0]</span>
+<span class="source-line" id="L592"><a class="line-no" href="#L592">592</a></span>
+<span class="source-line" id="L593"><a class="line-no" href="#L593">593</a>        try:</span>
+<span class="source-line" id="L594"><a class="line-no" href="#L594">594</a>            seq = Sequence(</span>
+<span class="source-line" id="L595"><a class="line-no" href="#L595">595</a>                prompt_token_ids=prompt_token_ids,</span>
+<span class="source-line" id="L596"><a class="line-no" href="#L596">596</a>                compressed_prompt_token_ids=compressed_prompt_token_ids,</span>
+<span class="source-line" id="L597"><a class="line-no" href="#L597">597</a>                **sequence_args,</span>
+<span class="source-line" id="L598"><a class="line-no" href="#L598">598</a>            )</span>
+<span class="source-line" id="L599"><a class="line-no" href="#L599">599</a>        except Exception:</span>
+<span class="source-line" id="L600"><a class="line-no" href="#L600">600</a>            logger.error(&quot;Failed to create sequence for request %s&quot;, request_id, exc_info=True)</span>
+<span class="source-line" id="L601"><a class="line-no" href="#L601">601</a>            raise</span>
+<span class="source-line" id="L602"><a class="line-no" href="#L602">602</a></span>
+<span class="source-line" id="L603"><a class="line-no" href="#L603">603</a>        if ve_failed:</span>
+<span class="source-line" id="L604"><a class="line-no" href="#L604">604</a>            seq.status = SequenceStatus.FINISHED_VE_FAILED</span>
+<span class="source-line" id="L605"><a class="line-no" href="#L605">605</a></span>
+<span class="source-line" id="L606"><a class="line-no" href="#L606">606</a>        so_pending = False</span>
+<span class="source-line" id="L607"><a class="line-no" href="#L607">607</a>        if sampling_params.so_args is not None:</span>
+<span class="source-line" id="L608"><a class="line-no" href="#L608">608</a>            so_args = sampling_params.so_args</span>
+<span class="source-line" id="L609"><a class="line-no" href="#L609">609</a>            if not enqueue:</span>
+<span class="source-line" id="L610"><a class="line-no" href="#L610">610</a>                # 调用方自行管理调度，无法靠 pump 重入，保持同步构建</span>
+<span class="source-line" id="L611"><a class="line-no" href="#L611">611</a>                seq.so_matcher = self.so_matcher_builder.build(so_args).result()</span>
+<span class="source-line" id="L612"><a class="line-no" href="#L612">612</a>            else:</span>
+<span class="source-line" id="L613"><a class="line-no" href="#L613">613</a>                so_pending = True</span>
+<span class="source-line" id="L614"><a class="line-no" href="#L614">614</a></span>
+<span class="source-line" id="L615"><a class="line-no" href="#L615">615</a>        if chunk_checkpoints is not None:</span>
+<span class="source-line" id="L616"><a class="line-no" href="#L616">616</a>            seq.chunk_checkpoints = chunk_checkpoints</span>
+<span class="source-line" id="L617"><a class="line-no" href="#L617">617</a>        # Add the sequence group to the scheduler.</span>
+<span class="source-line" id="L618"><a class="line-no" href="#L618">618</a>        if enqueue:</span>
+<span class="source-line" id="L619"><a class="line-no" href="#L619">619</a></span>
+<span class="source-line" id="L620"><a class="line-no" href="#L620">620</a>            def _enqueue(s: Sequence) -&gt; None:</span>
+<span class="source-line" id="L621"><a class="line-no" href="#L621">621</a>                if s.so_matcher is not None and s.so_matcher.is_aborted():</span>
+<span class="source-line" id="L622"><a class="line-no" href="#L622">622</a>                    s.status = SequenceStatus.FINISHED_SO_FAILED</span>
+<span class="source-line" id="L623"><a class="line-no" href="#L623">623</a>                self.scheduler.add_sequence(s)</span>
+<span class="source-line" id="L624"><a class="line-no" href="#L624">624</a>                if self.multi_modal_processor is not None:</span>
+<span class="source-line" id="L625"><a class="line-no" href="#L625">625</a>                    self.multi_modal_processor.add(request_id, multi_modal_data)</span>
+<span class="source-line" id="L626"><a class="line-no" href="#L626">626</a></span>
+<span class="source-line" id="L627"><a class="line-no" href="#L627">627</a>            if so_pending:</span>
+<span class="source-line" id="L628"><a class="line-no" href="#L628">628</a>                self.so_matcher_builder.submit(seq, sampling_params.so_args, _enqueue)</span>
+<span class="source-line" id="L629"><a class="line-no" href="#L629">629</a>            else:</span>
+<span class="source-line" id="L630"><a class="line-no" href="#L630">630</a>                _enqueue(seq)</span>
+<span class="source-line" id="L631"><a class="line-no" href="#L631">631</a>        return seq</span></code></pre></main></body></html>

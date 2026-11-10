@@ -1,0 +1,22 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>vllm-request</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>vllm-request</h1><p class="source-note">vllm/vllm/v1/request.py · ef9339e · L165–186 · <a href="https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/request.py#L165-L186">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>vllm · Apache-2.0</strong><p>Copyright contributors to the vLLM project。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L165"><a class="line-no" href="#L165">165</a>        # Tokens of output in flight when the request was preempted: delivered</span>
+<span class="source-line" id="L166"><a class="line-no" href="#L166">166</a>        # on return, but must not mutate the reset counters.</span>
+<span class="source-line" id="L167"><a class="line-no" href="#L167">167</a>        self.num_stale_output_tokens = 0</span>
+<span class="source-line" id="L168"><a class="line-no" href="#L168">168</a>        # Drop the stale output instead, for same-step preempt + resume</span>
+<span class="source-line" id="L169"><a class="line-no" href="#L169">169</a>        # (reset_prefix_cache).</span>
+<span class="source-line" id="L170"><a class="line-no" href="#L170">170</a>        self.drop_stale_output = False</span>
+<span class="source-line" id="L171"><a class="line-no" href="#L171">171</a></span>
+<span class="source-line" id="L172"><a class="line-no" href="#L172">172</a>        # Tokens of steps whose output is not yet processed (async scheduling</span>
+<span class="source-line" id="L173"><a class="line-no" href="#L173">173</a>        # and PP run ahead of the GPU); `num_computed_tokens` counts them</span>
+<span class="source-line" id="L174"><a class="line-no" href="#L174">174</a>        # optimistically.</span>
+<span class="source-line" id="L175"><a class="line-no" href="#L175">175</a>        self.num_in_flight_tokens = 0</span>
+<span class="source-line" id="L176"><a class="line-no" href="#L176">176</a></span>
+<span class="source-line" id="L177"><a class="line-no" href="#L177">177</a>        # V2+PP+async: Enforces `pp_size` cadence between same-request decode steps</span>
+<span class="source-line" id="L178"><a class="line-no" href="#L178">178</a>        # so the worker&#x27;s broadcast slot ring stays consistent.</span>
+<span class="source-line" id="L179"><a class="line-no" href="#L179">179</a>        self.next_decode_eligible_step = 0</span>
+<span class="source-line" id="L180"><a class="line-no" href="#L180">180</a></span>
+<span class="source-line" id="L181"><a class="line-no" href="#L181">181</a>        # Seq of the most recent step this request was scheduled in; fences</span>
+<span class="source-line" id="L182"><a class="line-no" href="#L182">182</a>        # deferred block freeing (see Scheduler._free_request_blocks).</span>
+<span class="source-line" id="L183"><a class="line-no" href="#L183">183</a>        self.last_sched_seq = 0</span>
+<span class="source-line" id="L184"><a class="line-no" href="#L184">184</a></span>
+<span class="source-line" id="L185"><a class="line-no" href="#L185">185</a>        self.spec_token_ids: list[int] = []</span>
+<span class="source-line" id="L186"><a class="line-no" href="#L186">186</a>        self.num_computed_tokens = 0</span></code></pre></main></body></html>

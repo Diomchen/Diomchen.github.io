@@ -1,0 +1,51 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>deepinfer-moe-communication</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>deepinfer-moe-communication</h1><p class="source-note">deepinfer/deepinfer/model_executor/models/v4_modules/mlp.py · a679bb8 · L461–511 · <a href="https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/model_executor/models/v4_modules/mlp.py#L461-L511">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>deepinfer · Apache-2.0</strong><p>DeepInfer project and its contributors。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/deepinfer/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L461"><a class="line-no" href="#L461">461</a>    def dispatch(</span>
+<span class="source-line" id="L462"><a class="line-no" href="#L462">462</a>        self,</span>
+<span class="source-line" id="L463"><a class="line-no" href="#L463">463</a>        hidden_states: torch.Tensor | tuple[torch.Tensor, torch.Tensor],</span>
+<span class="source-line" id="L464"><a class="line-no" href="#L464">464</a>        topk_idx: torch.Tensor,</span>
+<span class="source-line" id="L465"><a class="line-no" href="#L465">465</a>        topk_weights: torch.Tensor,</span>
+<span class="source-line" id="L466"><a class="line-no" href="#L466">466</a>        input_metadata: InputMetadata,</span>
+<span class="source-line" id="L467"><a class="line-no" href="#L467">467</a>        dispatch_pre_evt: EventHandle | None,</span>
+<span class="source-line" id="L468"><a class="line-no" href="#L468">468</a>    ) -&gt; EventOverlap:</span>
+<span class="source-line" id="L469"><a class="line-no" href="#L469">469</a>        event_overlap = self.ep_buffer.dispatch(</span>
+<span class="source-line" id="L470"><a class="line-no" href="#L470">470</a>            x=hidden_states,</span>
+<span class="source-line" id="L471"><a class="line-no" href="#L471">471</a>            num_sms=envs.DEEPINFER_USERBUFFER_COMM_SMS,  # TODO: Use all SMs when DeepEP support different #SM for dispatch and combine.</span>
+<span class="source-line" id="L472"><a class="line-no" href="#L472">472</a>            topk_idx=topk_idx,</span>
+<span class="source-line" id="L473"><a class="line-no" href="#L473">473</a>            topk_weights=topk_weights,</span>
+<span class="source-line" id="L474"><a class="line-no" href="#L474">474</a>            cumulative_local_expert_recv_stats=self._eplb_layer().expert_count,</span>
+<span class="source-line" id="L475"><a class="line-no" href="#L475">475</a>            num_experts=self.num_physical_experts,</span>
+<span class="source-line" id="L476"><a class="line-no" href="#L476">476</a>            num_max_tokens_per_rank=self.max_num_prefilling_tokens if input_metadata.is_prompt else self.max_num_decoding_tokens,</span>
+<span class="source-line" id="L477"><a class="line-no" href="#L477">477</a>            expert_alignment=deep_gemm.get_mk_alignment_for_contiguous_layout(),</span>
+<span class="source-line" id="L478"><a class="line-no" href="#L478">478</a>            previous_event=dispatch_pre_evt,</span>
+<span class="source-line" id="L479"><a class="line-no" href="#L479">479</a>            async_with_compute_stream=True,</span>
+<span class="source-line" id="L480"><a class="line-no" href="#L480">480</a>            allocate_on_comm_stream=dispatch_pre_evt is not None,</span>
+<span class="source-line" id="L481"><a class="line-no" href="#L481">481</a>            do_handle_copy=False,</span>
+<span class="source-line" id="L482"><a class="line-no" href="#L482">482</a>            # TODO do_sync=True makes yoco compaction a cpu bottleneck,</span>
+<span class="source-line" id="L483"><a class="line-no" href="#L483">483</a>            # while =False costs extra GPU memory. Mask mode saves no compute and the CPU is not the bottleneck,</span>
+<span class="source-line" id="L484"><a class="line-no" href="#L484">484</a>            # so it is disabled only in compaction mode.</span>
+<span class="source-line" id="L485"><a class="line-no" href="#L485">485</a>            do_cpu_sync=input_metadata.is_prompt and envs.DEEPINFER_YOCO_PREFILL_TRUNCATION_MODE != &quot;compact&quot;,</span>
+<span class="source-line" id="L486"><a class="line-no" href="#L486">486</a>            do_expand=True,</span>
+<span class="source-line" id="L487"><a class="line-no" href="#L487">487</a>            use_tma_aligned_col_major_sf=True,</span>
+<span class="source-line" id="L488"><a class="line-no" href="#L488">488</a>            defer_epilogue=True,</span>
+<span class="source-line" id="L489"><a class="line-no" href="#L489">489</a>        )</span>
+<span class="source-line" id="L490"><a class="line-no" href="#L490">490</a>        return event_overlap</span>
+<span class="source-line" id="L491"><a class="line-no" href="#L491">491</a></span>
+<span class="source-line" id="L492"><a class="line-no" href="#L492">492</a>    # noinspection PyMethodMayBeStatic</span>
+<span class="source-line" id="L493"><a class="line-no" href="#L493">493</a>    def combine(</span>
+<span class="source-line" id="L494"><a class="line-no" href="#L494">494</a>        self,</span>
+<span class="source-line" id="L495"><a class="line-no" href="#L495">495</a>        hidden_states: torch.Tensor,</span>
+<span class="source-line" id="L496"><a class="line-no" href="#L496">496</a>        shared_hidden_states: torch.Tensor | None,</span>
+<span class="source-line" id="L497"><a class="line-no" href="#L497">497</a>        handle: EPHandle,</span>
+<span class="source-line" id="L498"><a class="line-no" href="#L498">498</a>        combine_pre_evt: EventHandle | None,</span>
+<span class="source-line" id="L499"><a class="line-no" href="#L499">499</a>    ) -&gt; EventOverlap:</span>
+<span class="source-line" id="L500"><a class="line-no" href="#L500">500</a>        # Launch high-throughput chunked combine.</span>
+<span class="source-line" id="L501"><a class="line-no" href="#L501">501</a>        event_overlap = self.ep_buffer.combine(</span>
+<span class="source-line" id="L502"><a class="line-no" href="#L502">502</a>            x=hidden_states,</span>
+<span class="source-line" id="L503"><a class="line-no" href="#L503">503</a>            handle=handle,</span>
+<span class="source-line" id="L504"><a class="line-no" href="#L504">504</a>            num_sms=envs.DEEPINFER_USERBUFFER_COMM_SMS,</span>
+<span class="source-line" id="L505"><a class="line-no" href="#L505">505</a>            bias=shared_hidden_states,</span>
+<span class="source-line" id="L506"><a class="line-no" href="#L506">506</a>            previous_event=combine_pre_evt,</span>
+<span class="source-line" id="L507"><a class="line-no" href="#L507">507</a>            async_with_compute_stream=True,</span>
+<span class="source-line" id="L508"><a class="line-no" href="#L508">508</a>            allocate_on_comm_stream=combine_pre_evt is not None,</span>
+<span class="source-line" id="L509"><a class="line-no" href="#L509">509</a>            defer_epilogue=True,</span>
+<span class="source-line" id="L510"><a class="line-no" href="#L510">510</a>        )</span>
+<span class="source-line" id="L511"><a class="line-no" href="#L511">511</a>        return event_overlap</span></code></pre></main></body></html>

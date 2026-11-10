@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>12 · DeepInfer 总览</title>
+<link rel="stylesheet" href="../assets/course.css?v=2">
+</head>
+<body>
+<div class="page">
+
+<nav class="lesson-nav">
+  <a href="0011-vllm-advanced.html">← 11 vLLM 高级特性</a>
+  <a class="home" href="../index.html">课程索引</a>
+  <a class="right" href="0013-deepinfer-moe-eplb.html">13 MoE 与 EPLB →</a>
+</nav>
+
+<header>
+  <p class="kicker">课程 12 · DeepInfer</p>
+  <h1>把调度器下沉到 C++</h1>
+  <p class="dek">DeepInfer 是 DeepSeek 的生产推理框架，2026 年 10 月开源。README 说它「最初建立在 vLLM 之上」——但打开源码你会发现，它把 vLLM 最核心的那一层重写了。</p>
+  <p class="meta">
+    <span>约 50 分钟</span>
+    <span>源码：<code>deepinfer/engine/llm_engine.py</code> · <code>csrc/engine/</code></span>
+    <span>前置：08–11</span>
+  </p>
+</header><div class="aside"><span class="label">2026-11-08 源码校正</span><p>本页已按本地固定commit修正相关描述。<a href="../reference/framework-map.html">三框架对照</a> · <a href="../reference/source-map.html">带行号的离线证据</a> · <a href="../docs/research/framework-deep-dive-2026-11-08.md">核查与勘误详情</a>。</p></div>
+
+<h2><span class="num">1</span>它是什么</h2>
+
+<table>
+  <thead><tr><th>维度</th><th>事实（来自 README 与源码）</th></tr></thead>
+  <tbody>
+    <tr><td>定位</td><td>支撑 DeepSeek 大规模生产服务的推理框架，开源版提供离线推理</td></tr>
+    <tr><td>支持模型</td><td>DeepSeek-V4.1-Flash（默认权重 <code>DeepSeek-V4.1-Flash-1017</code>）</td></tr>
+    <tr><td>硬件</td><td>NVIDIA SM100（Blackwell）· 华为 Ascend 950</td></tr>
+    <tr><td>环境</td><td>Linux · GCC ≥ 13 · Python 3.12 · CUDA 13</td></tr>
+    <tr><td>许可</td><td>Apache 2.0</td></tr>
+    <tr><td>状态</td><td>README 明确：KV cache 系统、PD 分离、跨副本负载均衡<strong>不在本次开源范围</strong></td></tr>
+  </tbody>
+</table>
+
+<div class="warn">
+  <span class="label">你的 4070 Ti 跑不了它</span>
+  <p>SM100 是 Blackwell 数据中心卡，AD104（4070 Ti）的 sm_89 不在支持列表里；内核栈（FlashMLA / DeepGEMM）也是为 SM100 编译的。所以 <strong>DeepInfer 只能读、不能跑</strong>——这反而是好事：你会更专注在设计上。</p>
+</div>
+
+<h2><span class="num">2</span>和 vLLM 到底是什么关系</h2>
+
+<p>README 的致谢写得很清楚：</p>
+
+<blockquote><p>“DeepInfer was originally built primarily on vLLM, with additional inspiration from SGLang and TensorRT-LLM.”</p></blockquote>
+
+<p>但「最初建立」不等于「现在还是」。对照代码你会发现三处根本性改动：</p>
+
+<table>
+  <thead><tr><th></th><th>vLLM v1</th><th>DeepInfer</th></tr></thead>
+  <tbody>
+    <tr><td>调度器</td><td>Python（<code>scheduler.py</code> 3869 行）</td><td><strong>C++</strong>（<code>csrc/engine/scheduler.hpp</code>，pybind 暴露）</td></tr>
+    <tr><td>注意力内核</td><td>可插拔 backend（FlashAttention / FlashInfer / Triton…）</td><td>FlashMLA（DeepSeek 自研，MLA 专用）</td></tr>
+    <tr><td>MoE 通信</td><td>通用 all-to-all</td><td>DeepEP + EPLB（专家负载均衡）</td></tr>
+    <tr><td>投机解码</td><td>draft model / EAGLE / n-gram</td><td>DSpark + confidence head（见第 14 课）</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">3</span>分层：Python 壳，C++ 核</h2>
+
+<pre><code>entrypoints/                 <span class="cm"># 离线推理入口</span>
+  └─ engine/llm_engine.py    <span class="cm"># 1029 行：请求生命周期、worker 管理、输出处理</span>
+       └─ deepinfer._C.engine
+            ├─ Scheduler      <span class="cm"># C++：schedule / add_sequence / process_outputs</span>
+            ├─ BlockManager   <span class="cm"># C++：块分配</span>
+            └─ FlopsEstimator <span class="cm"># C++：估算 FLOPs，用于当前log_stats指标</span>
+       └─ worker/model_runner.py   <span class="cm"># 前向 + 采样</span>
+       └─ model_executor/models/   <span class="cm"># DeepSeek V4 架构、MoE、MTP</span></code></pre>
+
+<p><code>_create_scheduler()</code> 里能直接看到这个跨界[<a href="https://github.com/deepseek-ai/DeepInfer/blob/a679bb8/deepinfer/engine/llm_engine.py#L307">llm_engine.py L307</a>]：</p>
+
+<pre><code>def _create_scheduler(self) -&gt; Scheduler:
+    return Scheduler(
+        self.cache_config.block_size,
+        self.block_manager,
+        self.state_manager,
+        self.tokenizer.eos_token_id,
+        PG.cpu_data_parallel_group() if envs.DEEPINFER_ZERO_OVERHEAD_SCHEDULING else PG.data_parallel_group(),
+        self.scheduler_config,
+        self.yoco_truncate_len,
+        self.cache_config.lookahead_tokens,
+        ...
+        FlopsEstimator(self.model_metadata, yoco_mode=..., keep_tokens=...),
+        ...
+    )</code></pre>
+
+<p>该固定提交确实向Scheduler传入FlopsEstimator，但calc_flops在已形成调度结果后的log_stats分支调用，用于指标。公开prefill循环按token、对齐、chunk与容量等约束组批。部署QA的内部服务时间/计算预算设计应单独理解，不能当作此公开循环的现行实现。见<a href="../reference/source/deepinfer-metadata.html">源码证据</a>。</p>
+
+<h3>为什么值得用 C++ 重写调度</h3>
+
+<ul>
+  <li><strong>每步开销</strong>：一个 step 可能只有几毫秒，Python 的调度逻辑（遍历、字典、对象属性）可能形成CPU开销，具体占比需在固定负载下测量。</li>
+  <li><strong>GIL</strong>：异步调度要求「调度下一步」和「处理上一步输出」并行，该C++入口显式释放GIL；需要按实际线程与设备流水线理解。</li>
+  <li><strong>零开销调度</strong>：环境变量 <code>DEEPINFER_ZERO_OVERHEAD_SCHEDULING</code>、<code>csrc/engine/zos.cpp</code>——名字就写着目标。</li>
+</ul>
+
+<div class="key">
+  <span class="label">这条路径的启示</span>
+  <p>nano-vllm → vLLM 是「把逻辑写对」；vLLM → DeepInfer 是「把逻辑挪到更低的层」。同一套概念（预算、块、抢占），实现语言从 Python 换到 C++，具体性能收益仍由算法、实现和硬件测量决定。</p>
+</div>
+
+<h2><span class="num">4</span>内核栈：三件套</h2>
+
+<p><code>vendor/</code> 下直接内置了五个仓库：DeepEP、DeepGEMM、DeepSelect、FlashMLA（以及 Ascend 版本）。它们分别解决：</p>
+
+<table>
+  <thead><tr><th>项目</th><th>解决什么</th><th>对应到前面课程</th></tr></thead>
+  <tbody>
+    <tr><td>FlashMLA</td><td>MLA（多头潜在注意力）的高效 kernel</td><td>第 10 课的 attention backend</td></tr>
+    <tr><td>DeepGEMM</td><td>FP8 矩阵乘，MoE 分组 GEMM</td><td>——</td></tr>
+    <tr><td>DeepEP</td><td>MoE 的 all-to-all 通信（NVLink / RDMA）</td><td>第 05 课的通信原语</td></tr>
+    <tr><td>DeepSelect</td><td>README列出的内核依赖；具体职责需查其主源</td><td>不凭名称推断</td></tr>
+  </tbody>
+</table>
+
+<p>这一层是 vLLM 与 DeepInfer 差距最大的地方：vLLM 追求「支持所有硬件与模型」，DeepInfer 只服务<strong>一个模型家族 + 两种硬件</strong>，所以可以把每个 kernel 都压到极限。</p>
+
+<h2><span class="num">5</span>你能用它做什么</h2>
+
+<p>跑不了，但可以：</p>
+
+<ul>
+  <li><strong>读调度器</strong>：<code>csrc/engine/scheduler.hpp</code> 与 <code>block_manager.hpp</code>，对照第 03、09 课的概念看它怎么用 C++ 表达。</li>
+  <li><strong>读 MoE 与 EPLB</strong>：<code>model_executor/eplb/</code>（第 13 课）。</li>
+  <li><strong>读 DSpark</strong>：<code>model_executor/models/mtp/dflash.py</code>（第 14 课）。</li>
+  <li><strong>找 PR 点</strong>：README 明确说 KV cache 系统、PD 分离、负载均衡「未包含」，这些正是社区可以补的方向。</li>
+</ul>
+
+<h2><span class="num">6</span>练习 A · 对照阅读</h2>
+
+<p>打开 <code>vendor/deepinfer/csrc/engine/scheduler.hpp</code>，找出下面三件事分别在哪个方法里（不用读懂实现，找到函数名即可）：</p>
+
+<ol>
+  <li>把请求加入等待队列</li>
+  <li>一次调度决策</li>
+  <li>处理模型输出、更新请求状态</li>
+</ol>
+
+<details>
+  <summary>展开：参考答案</summary>
+  <p>① <code>add_sequence</code>；② <code>schedule</code>；③ <code>process_outputs</code>。三个名字与 vLLM 的 <code>add_request</code> / <code>schedule</code> / <code>update_from_output</code> 一一对应——<strong>概念没变，只是换了语言和封装</strong>。</p>
+</details>
+
+<h2><span class="num">7</span>练习 B · 闭卷测验</h2>
+
+<div class="quiz" data-quiz="deepinfer-overview"></div>
+
+<h2><span class="num">8</span>面试复述卡</h2>
+
+<p><strong>「DeepInfer 和 vLLM 有什么不同？」</strong></p>
+
+<details>
+  <summary>展开：30 秒版本</summary>
+  <p>「它最初建立在 vLLM 之上，但核心被重写了：调度器和块管理下沉到 C++，注意力用自研 FlashMLA，MoE 通信用 DeepEP 加 EPLB 做专家负载均衡，投机解码是 DSpark 加置信度头。它的取舍是只服务 DeepSeek V4 系列和两种硬件，所以每个 kernel 都能为单一模型极限优化；vLLM 反过来，用可插拔 backend 换通用性。」</p>
+</details>
+
+<div class="ask-teacher">
+  <p><strong>贡献练习：</strong>先做可复现的映射/状态测试或文档纠错，再与维护者确认范围。README缺失项代表系统集成边界，不代表维护者已承诺接收任何相关PR。</p>
+</div>
+
+<footer class="lesson-footer">
+  <h3>主源与延伸</h3>
+  <ul>
+    <li><strong>主源</strong>：README（特性列表 + 致谢 + 未包含项）+ <code>llm_engine.py</code> L130–330。</li>
+    <li>延伸：<code>deepinfer/_C/engine.pyi</code>——C++ 暴露给 Python 的完整接口，比读头文件快。</li>
+    <li>术语：<a href="../reference/glossary.html#compute">Tensor Parallelism</a>（EP 的对照）。</li>
+    <li>下一课：<strong>13 · MoE 与 EPLB</strong>——热门专家、冗余副本、以及一个可优化目标的贪心算法。</li>
+  </ul>
+</footer>
+
+</div>
+<script src="../assets/quiz.js?v=2"></script>
+<script>
+CourseQuiz.mount('[data-quiz="deepinfer-overview"]', {
+  questions: [
+    {
+      q: 'DeepInfer 把调度器放在 `deepinfer._C.engine` 里，主要动机是：',
+      options: [
+        '降低每步调度开销与 GIL 影响',
+        '让调度器支持多模态输入',
+        '复用 vLLM 的 Python 代码',
+        '减少模型权重的显存'
+      ],
+      answer: 0,
+      why: ' 调度下沉到 C++ 后，每步的遍历与对象操作不再受 Python 解释器与 GIL 拖累，这正是 zero-overhead scheduling 的目标。'
+    },
+    {
+      q: 'DeepInfer 支持的硬件是：',
+      options: [
+        'SM100 与 Ascend 950',
+        '所有 NVIDIA 消费级显卡',
+        '仅 CPU 与 TPU',
+        'SM80 与 SM89'
+      ],
+      answer: 0,
+      why: ' README 明确列出 NVIDIA SM100（Blackwell）与华为 Ascend 950；4070 Ti 的 sm_89 不在其中。'
+    },
+    {
+      q: '调度器里的 `FlopsEstimator` 用来：',
+      options: [
+        '形成批次后的FLOPs统计指标',
+        '统计 GPU 的实时功耗',
+        '计算 KV cache 的块数',
+        '预测采样的 token 数'
+      ],
+      answer: 0,
+      why: ' 此提交calc_flops在log_stats分支；公开循环没有据此求FLOPs预算。'
+    },
+    {
+      q: 'README 明确说明「不在本次开源范围」的是：',
+      options: [
+        'KV 系统、PD 分离、跨副本负载均衡',
+        '模型权重与分词器',
+        'CUDA kernel 与算子库',
+        '调度器与块管理'
+      ],
+      answer: 0,
+      why: ' 这三项被列为「完整推理服务需要、但本次未包含」，是否接受相关贡献仍需与维护者确认。'
+    },
+    {
+      q: 'DeepInfer 与 vLLM 在设计取舍上最大的不同是：',
+      options: [
+        '只服务单一模型家族换取极致优化',
+        '完全放弃批处理以降低延迟',
+        '不支持任何并行策略',
+        '只使用 CPU 做推理'
+      ],
+      answer: 0,
+      why: ' 它针对 DeepSeek V4 系列与两种硬件做全栈优化；vLLM 用可插拔后端换取通用性。'
+    }
+  ]
+});
+</script>
+<script src="../assets/highlight.js?v=2"></script>
+<script src="../assets/lesson-ui.js?v=2"></script>
+</body>
+</html>

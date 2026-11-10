@@ -1,0 +1,1 @@
+run_id,date,framework,commit,model,dtype,hardware,concurrency,prompt_tokens_total,output_tokens_committed,draft_tokens_verified,draft_tokens_accepted,wall_seconds,ttft_p50_ms,itl_p95_ms,peak_vram_mib,eager_or_graph,warmup_separate,notes

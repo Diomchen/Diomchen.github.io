@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>推理框架术语表 · 速查</title>
+<link rel="stylesheet" href="../assets/course.css?v=2">
+</head>
+<body>
+<div class="page">
+
+<header>
+  <p class="kicker">参考文档 · 术语表</p>
+  <h1>推理框架术语表</h1>
+  <p class="dek">课程里出现的每一个术语，一句话定义 + 在 nano-vllm 源码里的落点。打印出来贴在显示器边上。</p>
+  <p class="meta"><span>持续更新</span><span>源码基准 <code>bb823b3</code></span></p>
+</header>
+
+<nav class="toc"><a href="#transformer">Transformer细节</a>
+  <a href="#schedule">调度</a>
+  <a href="#memory">显存</a>
+  <a href="#compute">计算</a>
+  <a href="#metrics">指标</a>
+  <a href="#moe">MoE 与规模化</a>
+</nav>
+
+<h2 id="schedule"><span class="num">A</span>调度与批处理</h2>
+
+<dl class="gloss">
+
+  <dt><span class="en">Prefill</span> <span class="zh">预填充</span></dt>
+  <dd>处理prompt并建立各层KV的阶段，可分块进行；完成后产生首个输出。较长prefill常有较高算术强度，具体瓶颈需测量。
+  <span class="where">源码：<code>scheduler.py</code> L29–55 · <code>model_runner.prepare_prefill</code> · 课程 01</span></dd>
+
+  <dt><span class="en">Decode</span> <span class="zh">解码</span></dt>
+  <dd>每次只输入上一步采样出的 1 个 token，复用已有 KV cache 产出下一个 token 的阶段。访存密集——每步都要把整条序列的 K/V 读一遍。
+  <span class="where">源码：<code>scheduler.py</code> L57–73 · <code>model_runner.prepare_decode</code> · 课程 01</span></dd>
+
+  <dt><span class="en">Continuous batching</span> <span class="zh">连续批处理</span></dt>
+  <dd>每一轮都重新组 batch：谁做完了立刻退场，新请求随时插入，而不是等一整批全部结束。它是「吞吐能随并发上升」的根本原因。
+  <span class="where">源码：<code>scheduler.py</code> 的 waiting / running 双队列 · 课程 01</span></dd>
+
+  <dt><span class="en">Chunked prefill</span> <span class="zh">分块预填充</span></dt>
+  <dd>把长prompt的计算分成多轮；调度器可利用它与decode交错或混合，具体取决于实现。此nano版本同轮不混decode，vLLM可按预算混合。
+  <span class="where">nano-vllm 只对第一条序列允许分块：<code>scheduler.py</code> L42–43；vLLM v1 默认混合 · 课程 07</span></dd>
+
+  <dt><span class="en">Preemption</span> <span class="zh">抢占</span></dt>
+  <dd>显存不够时，把某些 running 序列的 block 全部释放、状态退回 waiting，等有空位再重新 prefill。代价是这部分的 KV 白算了。
+  <span class="where">源码：<code>scheduler.preempt</code> L75–79 · 课程 03</span></dd>
+
+  <dt><span class="en">Batch</span> <span class="zh">批</span></dt>
+  <dd>这一轮一起上 GPU 的序列集合。三个旋钮决定它的大小：<code>max_num_seqs</code>（序列数上限）、<code>max_num_batched_tokens</code>（token 数上限）、以及显存里还剩多少 block。
+  <span class="where">源码：<code>config.py</code> L9–10 · <code>scheduler.schedule</code></span></dd>
+
+</dl>
+
+<h2 id="memory"><span class="num">B</span>显存与 KV 管理</h2>
+
+<dl class="gloss">
+
+  <dt><span class="en">KV cache</span> <span class="zh">键值缓存</span></dt>
+  <dd>缓存每一层注意力已经算过的 Key 和 Value，decode 时直接读取，避免把前缀重算一遍。固定层数和维度时，标准dense attention的单步重算可由O(t²)变为O(t)；累计N步仍约O(N²)，不是整段生成O(N)。代价是KV容量随有效上下文长度线性增长。
+  <span class="where">源码：<code>model_runner.allocate_kv_cache</code> L103–121 · 课程 02</span></dd>
+
+  <dt><span class="en">Block</span> <span class="zh">块</span></dt>
+  <dd>KV 存储的最小分配单元，固定装 <code>block_size</code> 个 token（默认 256）。一条序列的 KV 由若干块拼成，块在物理显存里可以不连续。
+  <span class="where">源码：<code>config.py</code> L17 · <code>block_manager.py</code> 课程 02</span></dd>
+
+  <dt><span class="en">Block table</span> <span class="zh">块表</span></dt>
+  <dd>每条序列自己的「逻辑块号 → 物理块号」数组，等价于操作系统的页表。注意力 kernel 靠它找到 KV 的真实地址。
+  <span class="where">源码：<code>sequence.block_table</code> L28 · <code>prepare_block_tables</code> 课程 02</span></dd>
+
+  <dt><span class="en">Slot mapping</span> <span class="zh">槽位映射</span></dt>
+  <dd>一个 int32 数组：本次前向的第 i 个 token 应该把 K/V 写到 KV cache 的第几个物理槽位。Triton 写入 kernel 全靠它。
+  <span class="where">源码：<code>store_kvcache_kernel</code> · <code>prepare_prefill</code> L151–161 · 课程 04</span></dd>
+
+  <dt><span class="en">PagedAttention</span> <span class="zh">分页注意力</span></dt>
+  <dd>借操作系统的分页思想管理 KV：按块分配、按块表寻址，块可以共享、可以复用，从而减少外部碎片与过量预留；每请求末块仍可能有空槽。vLLM 的立身之本。
+  <span class="where">论文：<a href="https://arxiv.org/abs/2309.06180">SOSP'23</a> §3 · 源码：<code>block_manager.py</code> · 课程 02</span></dd>
+
+  <dt><span class="en">Prefix caching</span> <span class="zh">前缀缓存</span></dt>
+  <dd>相同前缀的请求共享同一批 block：对前缀做链式哈希，命中就直接复用，靠引用计数保证没人用时才释放。
+  <span class="where">源码：<code>block_manager.hash_blocks</code> L110–120 · <code>can_allocate</code> L58–73 · 课程 07</span></dd>
+
+  <dt><span class="en">ref_count</span> <span class="zh">引用计数</span></dt>
+  <dd>一个 block 被几条序列共享。为0表示无活跃引用、可回收；内容与hash可能保留以便再次命中。完整前缀共享时通常增加计数。
+  <span class="where">源码：<code>block_manager.py</code> L12 · <code>allocate</code> / <code>deallocate</code> · 课程 02</span></dd>
+
+</dl>
+
+<h2 id="compute"><span class="num">C</span>计算与并行</h2>
+
+<dl class="gloss">
+
+  <dt><span class="en">Compute-bound</span> <span class="zh">算力受限</span></dt>
+  <dd>瓶颈在 GPU 的计算单元，矩阵乘越大越划算。prefill 是典型：一次几百上千 token，张量核心能跑满。</dd>
+
+  <dt><span class="en">Memory-bound</span> <span class="zh">带宽受限</span></dt>
+  <dd>瓶颈在显存带宽，算力再快也要等数据搬过来。decode 是典型：每生成 1 个 token 要读完整条 KV。</dd>
+
+  <dt><span class="en">Arithmetic intensity</span> <span class="zh">算术强度</span></dt>
+  <dd>每搬运 1 字节数据能做多少次浮点运算（FLOPs/byte）。它和硬件的「算力/带宽」比值比较，就能判断一个 kernel 是算力受限还是带宽受限。</dd>
+
+  <dt><span class="en">Tensor Parallelism</span> <span class="zh">张量并行</span></dt>
+  <dd>把每层的权重沿维度切到多张卡上，每层末尾做一次 all-reduce 汇总。nano-vllm 用 NCCL 建组、用共享内存传方法名和参数。
+  <span class="where">源码：<code>model_runner.py</code> L41–89 · <code>layers/linear.py</code> · 课程 05</span></dd>
+
+  <dt><span class="en">CUDA Graph</span> <span class="zh">CUDA 图</span></dt>
+  <dd>把一整串 kernel 的启动序列录下来，之后一次回放，省掉逐 kernel 的 launch 开销。decode 的 shape 固定，最适合录图。
+  <span class="where">源码：<code>model_runner.capture_cudagraph</code> · 课程 06</span></dd>
+
+  <dt><span class="en">Sampling</span> <span class="zh">采样</span></dt>
+  <dd>从 logits 里选下一个 token：贪心、temperature、top-k、top-p。nano-vllm 只实现了 temperature + 多项式采样。
+  <span class="where">源码：<code>layers/sampler.py</code> · 课程 04</span></dd>
+
+</dl>
+
+<h2 id="metrics"><span class="num">D</span>指标与取舍</h2>
+
+<dl class="gloss">
+
+  <dt><span class="en">TTFT</span> <span class="zh">首 token 延迟</span></dt>
+  <dd>Time To First Token：请求进来到吐出第一个 token 的时间，主要由 prefill 长度和排队时间决定。交互式场景最看它。</dd>
+
+  <dt><span class="en">TPOT / ITL</span> <span class="zh">每 token 延迟</span></dt>
+  <dd>TPOT通常是每请求首末输出间总时间除以后续token数；ITL是相邻输出事件间隔的序列，适合看分位数。输出少于2个时TPOT不定义。</dd>
+
+  <dt><span class="en">Throughput</span> <span class="zh">吞吐</span></dt>
+  <dd>单位时间处理的 token 数（或请求数）。增加并发可能提高利用率，也会增加延迟或内存压力；收益并不单调，须在固定负载下测量。</dd>
+
+  <dt><span class="en">Goodput</span> <span class="zh">有效吞吐</span></dt>
+  <dd>满足 SLA（比如 TPOT &lt; 50ms）的那部分吞吐。真实服务优化的是它，不是裸吞吐。</dd>
+
+</dl>
+
+<h2 id="moe"><span class="num">E</span>MoE 与规模化</h2>
+
+<dl class="gloss">
+
+  <dt><span class="en">MoE</span> <span class="zh">混合专家</span></dt>
+  <dd>每层有多组「专家」子网络，token 经 router 选出 top-k 个专家只走这几组计算。参数量大但每个 token 的激活计算量小。
+  <span class="where">DeepInfer：<code>model_executor/models/v4_modules/mlp.py</code> · 课程 13</span></dd>
+
+  <dt><span class="en">Expert Parallelism</span> <span class="zh">专家并行</span></dt>
+  <dd>把专家分到不同卡上，token 通过 all-to-all 被送到持有对应专家的卡，算完再收回来。通信量由路由结果决定，因此对负载不均极其敏感。
+  <span class="where">DeepInfer：<code>parallel_utils/</code> + <code>vendor/DeepEP</code> · 课程 13</span></dd>
+
+  <dt><span class="en">EPLB</span> <span class="zh">专家并行负载均衡</span></dt>
+  <dd>给热门逻辑专家分配冗余物理副本，再把所有副本按「最小化各 step 的最大 rank 负载」贪心摊到各卡上。周期性触发，因为再平衡要搬权重。
+  <span class="where">源码：<code>model_executor/eplb/policy.py</code> · 课程 13</span></dd>
+
+  <dt><span class="en">Redundant expert</span> <span class="zh">冗余专家</span></dt>
+  <dd>同一个逻辑专家在多个物理槽位上的副本。物理专家数 = 逻辑专家数 + 冗余数。副本让热点专家可以并行服务多份流量。</dd>
+
+  <dt><span class="en">MLA</span> <span class="zh">多头潜在注意力</span></dt>
+  <dd>DeepSeek 的注意力变体：把 K/V 压到低维潜在空间缓存，显著缩小 KV cache。FlashMLA 是它的专用 kernel。
+  <span class="where">源码：<code>vendor/FlashMLA</code> · 课程 12</span></dd>
+
+  <dt><span class="en">MTP / DFlash</span> <span class="zh">多 token 预测 / 投机头</span></dt>
+  <dd>MTP是多token预测；本地DFlash为投机流程产生draft。此提交DEEPINFER_USE_NEXTN_DECODE默认5，这是配置上限，不代表所有模型固定有5个预测层。
+  <span class="where">源码：<code>model_executor/models/mtp/dflash.py</code> · 课程 14</span></dd>
+
+  <dt><span class="en">DSpark</span> <span class="zh">置信度调度的投机解码</span></dt>
+  <dd>在 DFlash 的 draft 之上加一个置信度头，预测每个候选的接受概率；将逐位置confidence累乘并结合跨请求候选与耗时曲线分配验证预算；真正接受与否仍由验证及sampler决定。
+  <span class="where">源码：<code>dflash.py</code> 的 <code>ConfidenceHead</code> · 课程 14</span></dd>
+
+  <dt><span class="en">Speculative decoding</span> <span class="zh">投机解码</span></dt>
+  <dd>先猜 k 个 token，再用一次大模型前向批量验证；接受的部分直接采用，拒绝处从修正分布重采。拒绝采样保证输出分布不变。
+  <span class="where">vLLM：<code>scheduled_spec_decode_tokens</code> · 课程 11</span></dd>
+
+  <dt><span class="en">Batch invariance</span> <span class="zh">批不变性</span></dt>
+  <dd>同一请求在不同 batch 组成下得到完全相同的结果。因为浮点归约不满足结合律，这需要固定归约顺序的 kernel 路径。
+  <span class="where">DeepInfer：<code>DEEPINFER_BATCH_INVARIANT</code> · 课程 14</span></dd>
+
+  <dt><span class="en">PD disaggregation</span> <span class="zh">预填充-解码分离</span></dt>
+  <dd>把 prefill 与 decode 放到不同机器/集群，各自用最合适的硬件配比；KV 通过 KV connector 从 prefill 节点传到 decode 节点。
+  <span class="where">vLLM：<code>v1/distributed/kv_transfer/</code> · 课程 11</span></dd>
+
+  <dt><span class="en">KV connector</span> <span class="zh">KV 传输连接器</span></dt>
+  <dd>PD 分离或 KV 复用时负责搬运 KV 的组件。块要先分配、但数据未到时不能登记进前缀缓存（<code>delay_cache_blocks</code>）。</dd>
+
+</dl>
+
+<h2 id="transformer"><span class="num">F</span>Transformer与运行时精确定义</h2><dl class="gloss"><dt><span class="en">Token / Embedding</span></dt><dd>token是分词器输出的离散单位；token ID经embedding查表得到H维向量，token边界不等于汉字/单词边界。 <a href="../lessons/0015-transformer-tensor-contract.html">图解与源码</a></dd><dt><span class="en">Hidden size / head_dim</span></dt><dd>H是残差流宽度，d是每头宽度；H不必等于Hq×d，必须读取模型config。 <a href="../lessons/0015-transformer-tensor-contract.html">图解与源码</a></dd><dt><span class="en">Q / K / V</span></dt><dd>Query与Key形成匹配分数，Value提供加权汇总内容；三者是不同学习投影。 <a href="../lessons/0016-attention-by-hand.html">图解与源码</a></dd><dt><span class="en">Causal mask</span></dt><dd>约束query只看当前位置与过去；有p个缓存token的chunk第i行应允许j≤p+i。 <a href="../lessons/0017-causal-mask-and-generation.html">图解与源码</a></dd><dt><span class="en">MHA / MQA / GQA</span></dt><dd>分别为每Q头一组KV、所有Q头共享一组KV、Q头分组共享KV；共享不代表query权重也相同。 <a href="../lessons/0018-multihead-gqa.html">图解与源码</a></dd><dt><span class="en">RoPE</span></dt><dd>按位置旋转Q/K的二维子空间，让点积携带相对位置信息；本地采用半切配对。 <a href="../lessons/0019-rope-position.html">图解与源码</a></dd><dt><span class="en">RMSNorm</span></dt><dd>除以最后维的均方根并乘可学习γ，不减均值。 <a href="../lessons/0020-norm-residual-swiglu.html">图解与源码</a></dd><dt><span class="en">Residual / Pre-Norm</span></dt><dd>残差将变换增量加回原状态；Pre-Norm在子层变换前归一化，本地可融合并延迟残差相加。 <a href="../lessons/0020-norm-residual-swiglu.html">图解与源码</a></dd><dt><span class="en">SwiGLU</span></dt><dd>[SiLU(xWg)⊙(xWu)]Wd；两路上投影、逐元素门控和下投影，逐token变换通道。 <a href="../lessons/0020-norm-residual-swiglu.html">图解与源码</a></dd><dt><span class="en">Logits / Temperature</span></dt><dd>logits是未归一化类别分数；temperature>0缩放后再softmax，T=0不能直接代入除法。 <a href="../lessons/0023-logits-sampling.html">图解与源码</a></dd><dt><span class="en">Online softmax</span></dt><dd>分块维护最大值m、分母l与加权和o，合并时重缩放，最后o/l得到完整attention结果。 <a href="../lessons/0022-flashattention-online-softmax.html">图解与源码</a></dd><dt><span class="en">In-flight / committed</span></dt><dd>in-flight已调度但尚未完成回填；committed已接受并提交。computed账本在异步时可能乐观计入在途。 <a href="../lessons/0027-vllm-token-ledger.html">图解与源码</a></dd><dt><span class="en">query_start_loc / seq_lens</span></dt><dd>前者划分本轮packed query片段，后者描述各请求可读上下文长度；都不能替代物理block_table。 <a href="../lessons/0029-vllm-runner-and-measurement.html">图解与源码</a></dd><dt><span class="en">YOCO bounded replay</span></dt><dd>对consumer层SWA状态进行有界后缀近似重建；窗口和回退覆盖约束不自动保证与全量重放严格等价。 <a href="../lessons/0032-deepinfer-dspark-state.html">图解与源码</a></dd></dl><footer class="lesson-footer">
+  <h3>怎么用</h3>
+  <ul>
+    <li>面试前扫一遍 A、B 两组，确保每个词能造一个句子。</li>
+    <li>读源码时遇到陌生符号，回到这里查它的落点，再跳过去看那几行。</li>
+    <li>本表随课程增长；术语的「课程 N」标记表示它会被在哪一课展开。</li>
+  </ul>
+</footer>
+
+</div>
+<script src="../assets/highlight.js?v=2"></script>
+<script src="../assets/lesson-ui.js?v=2"></script>
+</body>
+</html>

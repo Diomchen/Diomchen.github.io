@@ -1,0 +1,1514 @@
+{
+  "kind": "conceptual simulation; iterations are not milliseconds",
+  "config": {
+    "blocks": 4,
+    "block_size": 4,
+    "budget": 4,
+    "policy": "mixed",
+    "prefix": true
+  },
+  "summary": {
+    "iterations": 15,
+    "input_token_work": 38,
+    "output_tokens": 16,
+    "prefix_block_hits": 10,
+    "preemptions": 0,
+    "all_finished": true
+  },
+  "trace": [
+    {
+      "step": 0,
+      "spent": 4,
+      "budget": 4,
+      "scheduled": [
+        {
+          "request": "A",
+          "phase": "prefill",
+          "input_tokens": 4,
+          "positions": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "slots": [
+            0,
+            1,
+            2,
+            3
+          ]
+        }
+      ],
+      "events": [
+        "A arrived"
+      ],
+      "free": [
+        1,
+        2,
+        3
+      ],
+      "blocks": [
+        {
+          "id": 0,
+          "ref": 1,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 1,
+          "ref": 0,
+          "cached_prefix_length": 0
+        },
+        {
+          "id": 2,
+          "ref": 0,
+          "cached_prefix_length": 0
+        },
+        {
+          "id": 3,
+          "ref": 0,
+          "cached_prefix_length": 0
+        }
+      ],
+      "requests": [
+        {
+          "name": "A",
+          "state": "running",
+          "known": 9,
+          "computed": 4,
+          "generated": 0,
+          "target": 4,
+          "table": [
+            0
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "B",
+          "state": "not-arrived",
+          "known": 7,
+          "computed": 0,
+          "generated": 0,
+          "target": 5,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "C",
+          "state": "not-arrived",
+          "known": 13,
+          "computed": 0,
+          "generated": 0,
+          "target": 3,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "D",
+          "state": "not-arrived",
+          "known": 5,
+          "computed": 0,
+          "generated": 0,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        }
+      ]
+    },
+    {
+      "step": 1,
+      "spent": 4,
+      "budget": 4,
+      "scheduled": [
+        {
+          "request": "A",
+          "phase": "prefill",
+          "input_tokens": 4,
+          "positions": [
+            4,
+            5,
+            6,
+            7
+          ],
+          "slots": [
+            4,
+            5,
+            6,
+            7
+          ]
+        }
+      ],
+      "events": [
+        "B arrived"
+      ],
+      "free": [
+        2,
+        3
+      ],
+      "blocks": [
+        {
+          "id": 0,
+          "ref": 1,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 1,
+          "ref": 1,
+          "cached_prefix_length": 8
+        },
+        {
+          "id": 2,
+          "ref": 0,
+          "cached_prefix_length": 0
+        },
+        {
+          "id": 3,
+          "ref": 0,
+          "cached_prefix_length": 0
+        }
+      ],
+      "requests": [
+        {
+          "name": "A",
+          "state": "running",
+          "known": 9,
+          "computed": 8,
+          "generated": 0,
+          "target": 4,
+          "table": [
+            0,
+            1
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "B",
+          "state": "waiting",
+          "known": 7,
+          "computed": 0,
+          "generated": 0,
+          "target": 5,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "C",
+          "state": "not-arrived",
+          "known": 13,
+          "computed": 0,
+          "generated": 0,
+          "target": 3,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "D",
+          "state": "not-arrived",
+          "known": 5,
+          "computed": 0,
+          "generated": 0,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        }
+      ]
+    },
+    {
+      "step": 2,
+      "spent": 4,
+      "budget": 4,
+      "scheduled": [
+        {
+          "request": "A",
+          "phase": "prefill",
+          "input_tokens": 1,
+          "positions": [
+            8
+          ],
+          "slots": [
+            8
+          ]
+        },
+        {
+          "request": "B",
+          "phase": "prefill",
+          "input_tokens": 3,
+          "positions": [
+            4,
+            5,
+            6
+          ],
+          "slots": [
+            12,
+            13,
+            14
+          ]
+        }
+      ],
+      "events": [
+        "A emitted toy token 1/4",
+        "B prefix reused 4 tokens",
+        "B emitted toy token 1/5"
+      ],
+      "free": [],
+      "blocks": [
+        {
+          "id": 0,
+          "ref": 2,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 1,
+          "ref": 1,
+          "cached_prefix_length": 8
+        },
+        {
+          "id": 2,
+          "ref": 1,
+          "cached_prefix_length": 0
+        },
+        {
+          "id": 3,
+          "ref": 1,
+          "cached_prefix_length": 0
+        }
+      ],
+      "requests": [
+        {
+          "name": "A",
+          "state": "running",
+          "known": 10,
+          "computed": 9,
+          "generated": 1,
+          "target": 4,
+          "table": [
+            0,
+            1,
+            2
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "B",
+          "state": "running",
+          "known": 8,
+          "computed": 7,
+          "generated": 1,
+          "target": 5,
+          "table": [
+            0,
+            3
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "C",
+          "state": "not-arrived",
+          "known": 13,
+          "computed": 0,
+          "generated": 0,
+          "target": 3,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "D",
+          "state": "not-arrived",
+          "known": 5,
+          "computed": 0,
+          "generated": 0,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        }
+      ]
+    },
+    {
+      "step": 3,
+      "spent": 2,
+      "budget": 4,
+      "scheduled": [
+        {
+          "request": "A",
+          "phase": "decode",
+          "input_tokens": 1,
+          "positions": [
+            9
+          ],
+          "slots": [
+            9
+          ]
+        },
+        {
+          "request": "B",
+          "phase": "decode",
+          "input_tokens": 1,
+          "positions": [
+            7
+          ],
+          "slots": [
+            15
+          ]
+        }
+      ],
+      "events": [
+        "C arrived",
+        "A emitted toy token 2/4",
+        "B emitted toy token 2/5",
+        "C prefix reused 8 tokens"
+      ],
+      "free": [],
+      "blocks": [
+        {
+          "id": 0,
+          "ref": 2,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 1,
+          "ref": 1,
+          "cached_prefix_length": 8
+        },
+        {
+          "id": 2,
+          "ref": 1,
+          "cached_prefix_length": 0
+        },
+        {
+          "id": 3,
+          "ref": 1,
+          "cached_prefix_length": 8
+        }
+      ],
+      "requests": [
+        {
+          "name": "A",
+          "state": "running",
+          "known": 11,
+          "computed": 10,
+          "generated": 2,
+          "target": 4,
+          "table": [
+            0,
+            1,
+            2
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "B",
+          "state": "running",
+          "known": 9,
+          "computed": 8,
+          "generated": 2,
+          "target": 5,
+          "table": [
+            0,
+            3
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "C",
+          "state": "waiting",
+          "known": 13,
+          "computed": 0,
+          "generated": 0,
+          "target": 3,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "D",
+          "state": "not-arrived",
+          "known": 5,
+          "computed": 0,
+          "generated": 0,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        }
+      ]
+    },
+    {
+      "step": 4,
+      "spent": 1,
+      "budget": 4,
+      "scheduled": [
+        {
+          "request": "A",
+          "phase": "decode",
+          "input_tokens": 1,
+          "positions": [
+            10
+          ],
+          "slots": [
+            10
+          ]
+        }
+      ],
+      "events": [
+        "A emitted toy token 3/4",
+        "C prefix reused 8 tokens"
+      ],
+      "free": [],
+      "blocks": [
+        {
+          "id": 0,
+          "ref": 2,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 1,
+          "ref": 1,
+          "cached_prefix_length": 8
+        },
+        {
+          "id": 2,
+          "ref": 1,
+          "cached_prefix_length": 0
+        },
+        {
+          "id": 3,
+          "ref": 1,
+          "cached_prefix_length": 8
+        }
+      ],
+      "requests": [
+        {
+          "name": "A",
+          "state": "running",
+          "known": 12,
+          "computed": 11,
+          "generated": 3,
+          "target": 4,
+          "table": [
+            0,
+            1,
+            2
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "B",
+          "state": "running",
+          "known": 9,
+          "computed": 8,
+          "generated": 2,
+          "target": 5,
+          "table": [
+            0,
+            3
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "C",
+          "state": "waiting",
+          "known": 13,
+          "computed": 0,
+          "generated": 0,
+          "target": 3,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "D",
+          "state": "not-arrived",
+          "known": 5,
+          "computed": 0,
+          "generated": 0,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        }
+      ]
+    },
+    {
+      "step": 5,
+      "spent": 2,
+      "budget": 4,
+      "scheduled": [
+        {
+          "request": "A",
+          "phase": "decode",
+          "input_tokens": 1,
+          "positions": [
+            11
+          ],
+          "slots": [
+            11
+          ]
+        },
+        {
+          "request": "B",
+          "phase": "decode",
+          "input_tokens": 1,
+          "positions": [
+            8
+          ],
+          "slots": [
+            8
+          ]
+        }
+      ],
+      "events": [
+        "A emitted toy token 4/4",
+        "A finished; KV refs released",
+        "B emitted toy token 3/5",
+        "C prefix reused 8 tokens"
+      ],
+      "free": [
+        1
+      ],
+      "blocks": [
+        {
+          "id": 0,
+          "ref": 1,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 1,
+          "ref": 0,
+          "cached_prefix_length": 8
+        },
+        {
+          "id": 2,
+          "ref": 1,
+          "cached_prefix_length": 0
+        },
+        {
+          "id": 3,
+          "ref": 1,
+          "cached_prefix_length": 8
+        }
+      ],
+      "requests": [
+        {
+          "name": "A",
+          "state": "finished",
+          "known": 13,
+          "computed": 0,
+          "generated": 4,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "B",
+          "state": "running",
+          "known": 10,
+          "computed": 9,
+          "generated": 3,
+          "target": 5,
+          "table": [
+            0,
+            3,
+            2
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "C",
+          "state": "waiting",
+          "known": 13,
+          "computed": 0,
+          "generated": 0,
+          "target": 3,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "D",
+          "state": "not-arrived",
+          "known": 5,
+          "computed": 0,
+          "generated": 0,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        }
+      ]
+    },
+    {
+      "step": 6,
+      "spent": 4,
+      "budget": 4,
+      "scheduled": [
+        {
+          "request": "B",
+          "phase": "decode",
+          "input_tokens": 1,
+          "positions": [
+            9
+          ],
+          "slots": [
+            9
+          ]
+        },
+        {
+          "request": "D",
+          "phase": "prefill",
+          "input_tokens": 3,
+          "positions": [
+            0,
+            1,
+            2
+          ],
+          "slots": [
+            4,
+            5,
+            6
+          ]
+        }
+      ],
+      "events": [
+        "D arrived",
+        "B emitted toy token 4/5",
+        "C prefix reused 8 tokens"
+      ],
+      "free": [],
+      "blocks": [
+        {
+          "id": 0,
+          "ref": 1,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 1,
+          "ref": 1,
+          "cached_prefix_length": 0
+        },
+        {
+          "id": 2,
+          "ref": 1,
+          "cached_prefix_length": 0
+        },
+        {
+          "id": 3,
+          "ref": 1,
+          "cached_prefix_length": 8
+        }
+      ],
+      "requests": [
+        {
+          "name": "A",
+          "state": "finished",
+          "known": 13,
+          "computed": 0,
+          "generated": 4,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "B",
+          "state": "running",
+          "known": 11,
+          "computed": 10,
+          "generated": 4,
+          "target": 5,
+          "table": [
+            0,
+            3,
+            2
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "C",
+          "state": "waiting",
+          "known": 13,
+          "computed": 0,
+          "generated": 0,
+          "target": 3,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "D",
+          "state": "running",
+          "known": 5,
+          "computed": 3,
+          "generated": 0,
+          "target": 4,
+          "table": [
+            1
+          ],
+          "preemptions": 0
+        }
+      ]
+    },
+    {
+      "step": 7,
+      "spent": 4,
+      "budget": 4,
+      "scheduled": [
+        {
+          "request": "B",
+          "phase": "decode",
+          "input_tokens": 1,
+          "positions": [
+            10
+          ],
+          "slots": [
+            10
+          ]
+        },
+        {
+          "request": "D",
+          "phase": "prefill",
+          "input_tokens": 2,
+          "positions": [
+            3,
+            4
+          ],
+          "slots": [
+            7,
+            8
+          ]
+        },
+        {
+          "request": "C",
+          "phase": "prefill",
+          "input_tokens": 1,
+          "positions": [
+            4
+          ],
+          "slots": [
+            12
+          ]
+        }
+      ],
+      "events": [
+        "B emitted toy token 5/5",
+        "B finished; KV refs released",
+        "D emitted toy token 1/4",
+        "C prefix reused 4 tokens"
+      ],
+      "free": [],
+      "blocks": [
+        {
+          "id": 0,
+          "ref": 1,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 1,
+          "ref": 1,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 2,
+          "ref": 1,
+          "cached_prefix_length": 0
+        },
+        {
+          "id": 3,
+          "ref": 1,
+          "cached_prefix_length": 0
+        }
+      ],
+      "requests": [
+        {
+          "name": "A",
+          "state": "finished",
+          "known": 13,
+          "computed": 0,
+          "generated": 4,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "B",
+          "state": "finished",
+          "known": 12,
+          "computed": 0,
+          "generated": 5,
+          "target": 5,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "C",
+          "state": "running",
+          "known": 13,
+          "computed": 5,
+          "generated": 0,
+          "target": 3,
+          "table": [
+            0,
+            3
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "D",
+          "state": "running",
+          "known": 6,
+          "computed": 5,
+          "generated": 1,
+          "target": 4,
+          "table": [
+            1,
+            2
+          ],
+          "preemptions": 0
+        }
+      ]
+    },
+    {
+      "step": 8,
+      "spent": 1,
+      "budget": 4,
+      "scheduled": [
+        {
+          "request": "D",
+          "phase": "decode",
+          "input_tokens": 1,
+          "positions": [
+            5
+          ],
+          "slots": [
+            9
+          ]
+        }
+      ],
+      "events": [
+        "D emitted toy token 2/4"
+      ],
+      "free": [],
+      "blocks": [
+        {
+          "id": 0,
+          "ref": 1,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 1,
+          "ref": 1,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 2,
+          "ref": 1,
+          "cached_prefix_length": 0
+        },
+        {
+          "id": 3,
+          "ref": 1,
+          "cached_prefix_length": 0
+        }
+      ],
+      "requests": [
+        {
+          "name": "A",
+          "state": "finished",
+          "known": 13,
+          "computed": 0,
+          "generated": 4,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "B",
+          "state": "finished",
+          "known": 12,
+          "computed": 0,
+          "generated": 5,
+          "target": 5,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "C",
+          "state": "running",
+          "known": 13,
+          "computed": 5,
+          "generated": 0,
+          "target": 3,
+          "table": [
+            0,
+            3
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "D",
+          "state": "running",
+          "known": 7,
+          "computed": 6,
+          "generated": 2,
+          "target": 4,
+          "table": [
+            1,
+            2
+          ],
+          "preemptions": 0
+        }
+      ]
+    },
+    {
+      "step": 9,
+      "spent": 1,
+      "budget": 4,
+      "scheduled": [
+        {
+          "request": "D",
+          "phase": "decode",
+          "input_tokens": 1,
+          "positions": [
+            6
+          ],
+          "slots": [
+            10
+          ]
+        }
+      ],
+      "events": [
+        "D emitted toy token 3/4"
+      ],
+      "free": [],
+      "blocks": [
+        {
+          "id": 0,
+          "ref": 1,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 1,
+          "ref": 1,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 2,
+          "ref": 1,
+          "cached_prefix_length": 0
+        },
+        {
+          "id": 3,
+          "ref": 1,
+          "cached_prefix_length": 0
+        }
+      ],
+      "requests": [
+        {
+          "name": "A",
+          "state": "finished",
+          "known": 13,
+          "computed": 0,
+          "generated": 4,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "B",
+          "state": "finished",
+          "known": 12,
+          "computed": 0,
+          "generated": 5,
+          "target": 5,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "C",
+          "state": "running",
+          "known": 13,
+          "computed": 5,
+          "generated": 0,
+          "target": 3,
+          "table": [
+            0,
+            3
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "D",
+          "state": "running",
+          "known": 8,
+          "computed": 7,
+          "generated": 3,
+          "target": 4,
+          "table": [
+            1,
+            2
+          ],
+          "preemptions": 0
+        }
+      ]
+    },
+    {
+      "step": 10,
+      "spent": 1,
+      "budget": 4,
+      "scheduled": [
+        {
+          "request": "D",
+          "phase": "decode",
+          "input_tokens": 1,
+          "positions": [
+            7
+          ],
+          "slots": [
+            11
+          ]
+        }
+      ],
+      "events": [
+        "D emitted toy token 4/4",
+        "D finished; KV refs released"
+      ],
+      "free": [
+        2,
+        1
+      ],
+      "blocks": [
+        {
+          "id": 0,
+          "ref": 1,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 1,
+          "ref": 0,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 2,
+          "ref": 0,
+          "cached_prefix_length": 8
+        },
+        {
+          "id": 3,
+          "ref": 1,
+          "cached_prefix_length": 0
+        }
+      ],
+      "requests": [
+        {
+          "name": "A",
+          "state": "finished",
+          "known": 13,
+          "computed": 0,
+          "generated": 4,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "B",
+          "state": "finished",
+          "known": 12,
+          "computed": 0,
+          "generated": 5,
+          "target": 5,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "C",
+          "state": "running",
+          "known": 13,
+          "computed": 5,
+          "generated": 0,
+          "target": 3,
+          "table": [
+            0,
+            3
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "D",
+          "state": "finished",
+          "known": 9,
+          "computed": 0,
+          "generated": 4,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        }
+      ]
+    },
+    {
+      "step": 11,
+      "spent": 4,
+      "budget": 4,
+      "scheduled": [
+        {
+          "request": "C",
+          "phase": "prefill",
+          "input_tokens": 4,
+          "positions": [
+            5,
+            6,
+            7,
+            8
+          ],
+          "slots": [
+            13,
+            14,
+            15,
+            8
+          ]
+        }
+      ],
+      "events": [],
+      "free": [
+        1
+      ],
+      "blocks": [
+        {
+          "id": 0,
+          "ref": 1,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 1,
+          "ref": 0,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 2,
+          "ref": 1,
+          "cached_prefix_length": 0
+        },
+        {
+          "id": 3,
+          "ref": 1,
+          "cached_prefix_length": 8
+        }
+      ],
+      "requests": [
+        {
+          "name": "A",
+          "state": "finished",
+          "known": 13,
+          "computed": 0,
+          "generated": 4,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "B",
+          "state": "finished",
+          "known": 12,
+          "computed": 0,
+          "generated": 5,
+          "target": 5,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "C",
+          "state": "running",
+          "known": 13,
+          "computed": 9,
+          "generated": 0,
+          "target": 3,
+          "table": [
+            0,
+            3,
+            2
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "D",
+          "state": "finished",
+          "known": 9,
+          "computed": 0,
+          "generated": 4,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        }
+      ]
+    },
+    {
+      "step": 12,
+      "spent": 4,
+      "budget": 4,
+      "scheduled": [
+        {
+          "request": "C",
+          "phase": "prefill",
+          "input_tokens": 4,
+          "positions": [
+            9,
+            10,
+            11,
+            12
+          ],
+          "slots": [
+            9,
+            10,
+            11,
+            4
+          ]
+        }
+      ],
+      "events": [
+        "C emitted toy token 1/3"
+      ],
+      "free": [],
+      "blocks": [
+        {
+          "id": 0,
+          "ref": 1,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 1,
+          "ref": 1,
+          "cached_prefix_length": 0
+        },
+        {
+          "id": 2,
+          "ref": 1,
+          "cached_prefix_length": 12
+        },
+        {
+          "id": 3,
+          "ref": 1,
+          "cached_prefix_length": 8
+        }
+      ],
+      "requests": [
+        {
+          "name": "A",
+          "state": "finished",
+          "known": 13,
+          "computed": 0,
+          "generated": 4,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "B",
+          "state": "finished",
+          "known": 12,
+          "computed": 0,
+          "generated": 5,
+          "target": 5,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "C",
+          "state": "running",
+          "known": 14,
+          "computed": 13,
+          "generated": 1,
+          "target": 3,
+          "table": [
+            0,
+            3,
+            2,
+            1
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "D",
+          "state": "finished",
+          "known": 9,
+          "computed": 0,
+          "generated": 4,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        }
+      ]
+    },
+    {
+      "step": 13,
+      "spent": 1,
+      "budget": 4,
+      "scheduled": [
+        {
+          "request": "C",
+          "phase": "decode",
+          "input_tokens": 1,
+          "positions": [
+            13
+          ],
+          "slots": [
+            5
+          ]
+        }
+      ],
+      "events": [
+        "C emitted toy token 2/3"
+      ],
+      "free": [],
+      "blocks": [
+        {
+          "id": 0,
+          "ref": 1,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 1,
+          "ref": 1,
+          "cached_prefix_length": 0
+        },
+        {
+          "id": 2,
+          "ref": 1,
+          "cached_prefix_length": 12
+        },
+        {
+          "id": 3,
+          "ref": 1,
+          "cached_prefix_length": 8
+        }
+      ],
+      "requests": [
+        {
+          "name": "A",
+          "state": "finished",
+          "known": 13,
+          "computed": 0,
+          "generated": 4,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "B",
+          "state": "finished",
+          "known": 12,
+          "computed": 0,
+          "generated": 5,
+          "target": 5,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "C",
+          "state": "running",
+          "known": 15,
+          "computed": 14,
+          "generated": 2,
+          "target": 3,
+          "table": [
+            0,
+            3,
+            2,
+            1
+          ],
+          "preemptions": 0
+        },
+        {
+          "name": "D",
+          "state": "finished",
+          "known": 9,
+          "computed": 0,
+          "generated": 4,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        }
+      ]
+    },
+    {
+      "step": 14,
+      "spent": 1,
+      "budget": 4,
+      "scheduled": [
+        {
+          "request": "C",
+          "phase": "decode",
+          "input_tokens": 1,
+          "positions": [
+            14
+          ],
+          "slots": [
+            6
+          ]
+        }
+      ],
+      "events": [
+        "C emitted toy token 3/3",
+        "C finished; KV refs released"
+      ],
+      "free": [
+        1,
+        2,
+        3,
+        0
+      ],
+      "blocks": [
+        {
+          "id": 0,
+          "ref": 0,
+          "cached_prefix_length": 4
+        },
+        {
+          "id": 1,
+          "ref": 0,
+          "cached_prefix_length": 0
+        },
+        {
+          "id": 2,
+          "ref": 0,
+          "cached_prefix_length": 12
+        },
+        {
+          "id": 3,
+          "ref": 0,
+          "cached_prefix_length": 8
+        }
+      ],
+      "requests": [
+        {
+          "name": "A",
+          "state": "finished",
+          "known": 13,
+          "computed": 0,
+          "generated": 4,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "B",
+          "state": "finished",
+          "known": 12,
+          "computed": 0,
+          "generated": 5,
+          "target": 5,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "C",
+          "state": "finished",
+          "known": 16,
+          "computed": 0,
+          "generated": 3,
+          "target": 3,
+          "table": [],
+          "preemptions": 0
+        },
+        {
+          "name": "D",
+          "state": "finished",
+          "known": 9,
+          "computed": 0,
+          "generated": 4,
+          "target": 4,
+          "table": [],
+          "preemptions": 0
+        }
+      ]
+    }
+  ]
+}

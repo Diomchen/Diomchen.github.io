@@ -1,0 +1,42 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>nano-engine-step</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>nano-engine-step</h1><p class="source-note">nano-vllm/nanovllm/engine/llm_engine.py · bb823b3 · L49–90 · <a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/engine/llm_engine.py#L49-L90">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>nano-vllm · MIT</strong><p>Copyright (c) 2025 Xingkai Yu。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/nano-vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L49"><a class="line-no" href="#L49">49</a>    def step(self):</span>
+<span class="source-line" id="L50"><a class="line-no" href="#L50">50</a>        seqs, is_prefill = self.scheduler.schedule()</span>
+<span class="source-line" id="L51"><a class="line-no" href="#L51">51</a>        num_tokens = sum(seq.num_scheduled_tokens for seq in seqs) if is_prefill else -len(seqs)</span>
+<span class="source-line" id="L52"><a class="line-no" href="#L52">52</a>        token_ids = self.model_runner.call(&quot;run&quot;, seqs, is_prefill)</span>
+<span class="source-line" id="L53"><a class="line-no" href="#L53">53</a>        self.scheduler.postprocess(seqs, token_ids, is_prefill)</span>
+<span class="source-line" id="L54"><a class="line-no" href="#L54">54</a>        outputs = [(seq.seq_id, seq.completion_token_ids) for seq in seqs if seq.is_finished]</span>
+<span class="source-line" id="L55"><a class="line-no" href="#L55">55</a>        return outputs, num_tokens</span>
+<span class="source-line" id="L56"><a class="line-no" href="#L56">56</a></span>
+<span class="source-line" id="L57"><a class="line-no" href="#L57">57</a>    def is_finished(self):</span>
+<span class="source-line" id="L58"><a class="line-no" href="#L58">58</a>        return self.scheduler.is_finished()</span>
+<span class="source-line" id="L59"><a class="line-no" href="#L59">59</a></span>
+<span class="source-line" id="L60"><a class="line-no" href="#L60">60</a>    def generate(</span>
+<span class="source-line" id="L61"><a class="line-no" href="#L61">61</a>        self,</span>
+<span class="source-line" id="L62"><a class="line-no" href="#L62">62</a>        prompts: list[str] | list[list[int]],</span>
+<span class="source-line" id="L63"><a class="line-no" href="#L63">63</a>        sampling_params: SamplingParams | list[SamplingParams],</span>
+<span class="source-line" id="L64"><a class="line-no" href="#L64">64</a>        use_tqdm: bool = True,</span>
+<span class="source-line" id="L65"><a class="line-no" href="#L65">65</a>    ) -&gt; list[str]:</span>
+<span class="source-line" id="L66"><a class="line-no" href="#L66">66</a>        pbar = tqdm(total=len(prompts), desc=&quot;Generating&quot;, dynamic_ncols=True, disable=not use_tqdm)</span>
+<span class="source-line" id="L67"><a class="line-no" href="#L67">67</a>        if not isinstance(sampling_params, list):</span>
+<span class="source-line" id="L68"><a class="line-no" href="#L68">68</a>            sampling_params = [sampling_params] * len(prompts)</span>
+<span class="source-line" id="L69"><a class="line-no" href="#L69">69</a>        for prompt, sp in zip(prompts, sampling_params):</span>
+<span class="source-line" id="L70"><a class="line-no" href="#L70">70</a>            self.add_request(prompt, sp)</span>
+<span class="source-line" id="L71"><a class="line-no" href="#L71">71</a>        outputs = {}</span>
+<span class="source-line" id="L72"><a class="line-no" href="#L72">72</a>        prefill_throughput = decode_throughput = 0.</span>
+<span class="source-line" id="L73"><a class="line-no" href="#L73">73</a>        while not self.is_finished():</span>
+<span class="source-line" id="L74"><a class="line-no" href="#L74">74</a>            t = perf_counter()</span>
+<span class="source-line" id="L75"><a class="line-no" href="#L75">75</a>            output, num_tokens = self.step()</span>
+<span class="source-line" id="L76"><a class="line-no" href="#L76">76</a>            if num_tokens &gt; 0:</span>
+<span class="source-line" id="L77"><a class="line-no" href="#L77">77</a>                prefill_throughput = num_tokens / (perf_counter() - t)</span>
+<span class="source-line" id="L78"><a class="line-no" href="#L78">78</a>            else:</span>
+<span class="source-line" id="L79"><a class="line-no" href="#L79">79</a>                decode_throughput = -num_tokens / (perf_counter() - t)</span>
+<span class="source-line" id="L80"><a class="line-no" href="#L80">80</a>            pbar.set_postfix({</span>
+<span class="source-line" id="L81"><a class="line-no" href="#L81">81</a>                &quot;Prefill&quot;: f&quot;{int(prefill_throughput)}tok/s&quot;,</span>
+<span class="source-line" id="L82"><a class="line-no" href="#L82">82</a>                &quot;Decode&quot;: f&quot;{int(decode_throughput)}tok/s&quot;,</span>
+<span class="source-line" id="L83"><a class="line-no" href="#L83">83</a>            })</span>
+<span class="source-line" id="L84"><a class="line-no" href="#L84">84</a>            for seq_id, token_ids in output:</span>
+<span class="source-line" id="L85"><a class="line-no" href="#L85">85</a>                outputs[seq_id] = token_ids</span>
+<span class="source-line" id="L86"><a class="line-no" href="#L86">86</a>                pbar.update(1)</span>
+<span class="source-line" id="L87"><a class="line-no" href="#L87">87</a>        pbar.close()</span>
+<span class="source-line" id="L88"><a class="line-no" href="#L88">88</a>        outputs = [outputs[seq_id] for seq_id in sorted(outputs.keys())]</span>
+<span class="source-line" id="L89"><a class="line-no" href="#L89">89</a>        outputs = [{&quot;text&quot;: self.tokenizer.decode(token_ids), &quot;token_ids&quot;: token_ids} for token_ids in outputs]</span>
+<span class="source-line" id="L90"><a class="line-no" href="#L90">90</a>        return outputs</span></code></pre></main></body></html>

@@ -1,0 +1,95 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>vllm-metadata</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>vllm-metadata</h1><p class="source-note">vllm/vllm/v1/worker/gpu_model_runner.py · ef9339e · L2102–2196 · <a href="https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/worker/gpu_model_runner.py#L2102-L2196">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>vllm · Apache-2.0</strong><p>Copyright contributors to the vLLM project。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L2102"><a class="line-no" href="#L2102">2102</a>        # Update num_computed_tokens on GPU. In async spec decode,</span>
+<span class="source-line" id="L2103"><a class="line-no" href="#L2103">2103</a>        # CPU values are optimistic (all drafts accepted). The kernel</span>
+<span class="source-line" id="L2104"><a class="line-no" href="#L2104">2104</a>        # corrects on GPU using the previous step&#x27;s</span>
+<span class="source-line" id="L2105"><a class="line-no" href="#L2105">2105</a>        # valid_sampled_token_count_gpu. Otherwise, just copy from CPU.</span>
+<span class="source-line" id="L2106"><a class="line-no" href="#L2106">2106</a>        if (</span>
+<span class="source-line" id="L2107"><a class="line-no" href="#L2107">2107</a>            self.use_async_spec_decode</span>
+<span class="source-line" id="L2108"><a class="line-no" href="#L2108">2108</a>            and self.valid_sampled_token_count_gpu is not None</span>
+<span class="source-line" id="L2109"><a class="line-no" href="#L2109">2109</a>            and prev_req_id_to_index</span>
+<span class="source-line" id="L2110"><a class="line-no" href="#L2110">2110</a>        ):</span>
+<span class="source-line" id="L2111"><a class="line-no" href="#L2111">2111</a>            self.prev_positions.copy_to_gpu(num_reqs)</span>
+<span class="source-line" id="L2112"><a class="line-no" href="#L2112">2112</a>            self.prev_num_draft_tokens.copy_to_gpu()</span>
+<span class="source-line" id="L2113"><a class="line-no" href="#L2113">2113</a>            cpu_values = self.input_batch.num_computed_tokens_cpu_tensor[:num_reqs].to(</span>
+<span class="source-line" id="L2114"><a class="line-no" href="#L2114">2114</a>                device=self.device, non_blocking=True</span>
+<span class="source-line" id="L2115"><a class="line-no" href="#L2115">2115</a>            )</span>
+<span class="source-line" id="L2116"><a class="line-no" href="#L2116">2116</a>            update_num_computed_tokens_for_batch_change(</span>
+<span class="source-line" id="L2117"><a class="line-no" href="#L2117">2117</a>                self.num_computed_tokens,</span>
+<span class="source-line" id="L2118"><a class="line-no" href="#L2118">2118</a>                self.num_accepted_tokens.gpu[:num_reqs],</span>
+<span class="source-line" id="L2119"><a class="line-no" href="#L2119">2119</a>                self.prev_positions.gpu[:num_reqs],</span>
+<span class="source-line" id="L2120"><a class="line-no" href="#L2120">2120</a>                self.valid_sampled_token_count_gpu,</span>
+<span class="source-line" id="L2121"><a class="line-no" href="#L2121">2121</a>                self.prev_num_draft_tokens.gpu,</span>
+<span class="source-line" id="L2122"><a class="line-no" href="#L2122">2122</a>                cpu_values,</span>
+<span class="source-line" id="L2123"><a class="line-no" href="#L2123">2123</a>            )</span>
+<span class="source-line" id="L2124"><a class="line-no" href="#L2124">2124</a>        else:</span>
+<span class="source-line" id="L2125"><a class="line-no" href="#L2125">2125</a>            self.num_computed_tokens[:num_reqs].copy_(</span>
+<span class="source-line" id="L2126"><a class="line-no" href="#L2126">2126</a>                self.input_batch.num_computed_tokens_cpu_tensor[:num_reqs],</span>
+<span class="source-line" id="L2127"><a class="line-no" href="#L2127">2127</a>                non_blocking=True,</span>
+<span class="source-line" id="L2128"><a class="line-no" href="#L2128">2128</a>            )</span>
+<span class="source-line" id="L2129"><a class="line-no" href="#L2129">2129</a></span>
+<span class="source-line" id="L2130"><a class="line-no" href="#L2130">2130</a>        self.req_indices.np[:total_num_scheduled_tokens] = req_indices</span>
+<span class="source-line" id="L2131"><a class="line-no" href="#L2131">2131</a>        self.req_indices.copy_to_gpu(total_num_scheduled_tokens)</span>
+<span class="source-line" id="L2132"><a class="line-no" href="#L2132">2132</a>        req_indices_gpu = self.req_indices.gpu[:total_num_scheduled_tokens]</span>
+<span class="source-line" id="L2133"><a class="line-no" href="#L2133">2133</a></span>
+<span class="source-line" id="L2134"><a class="line-no" href="#L2134">2134</a>        self.query_pos.copy_to_gpu(total_num_scheduled_tokens)</span>
+<span class="source-line" id="L2135"><a class="line-no" href="#L2135">2135</a>        self.num_scheduled_tokens.np[:num_reqs] = num_scheduled_tokens</span>
+<span class="source-line" id="L2136"><a class="line-no" href="#L2136">2136</a>        self.num_scheduled_tokens.copy_to_gpu(num_reqs)</span>
+<span class="source-line" id="L2137"><a class="line-no" href="#L2137">2137</a>        num_scheduled_tokens_gpu = self.num_scheduled_tokens.gpu[:num_reqs]</span>
+<span class="source-line" id="L2138"><a class="line-no" href="#L2138">2138</a>        self.positions[:total_num_scheduled_tokens] = (</span>
+<span class="source-line" id="L2139"><a class="line-no" href="#L2139">2139</a>            self.num_computed_tokens[req_indices_gpu].to(torch.int64)</span>
+<span class="source-line" id="L2140"><a class="line-no" href="#L2140">2140</a>            + self.query_pos.gpu[:total_num_scheduled_tokens]</span>
+<span class="source-line" id="L2141"><a class="line-no" href="#L2141">2141</a>        )</span>
+<span class="source-line" id="L2142"><a class="line-no" href="#L2142">2142</a>        self.seq_lens[:num_reqs] = (</span>
+<span class="source-line" id="L2143"><a class="line-no" href="#L2143">2143</a>            self.num_computed_tokens[:num_reqs] + num_scheduled_tokens_gpu</span>
+<span class="source-line" id="L2144"><a class="line-no" href="#L2144">2144</a>        )</span>
+<span class="source-line" id="L2145"><a class="line-no" href="#L2145">2145</a>        self.seq_lens[num_reqs:].fill_(0)</span>
+<span class="source-line" id="L2146"><a class="line-no" href="#L2146">2146</a></span>
+<span class="source-line" id="L2147"><a class="line-no" href="#L2147">2147</a>        self.input_batch.block_table.compute_slot_mapping(</span>
+<span class="source-line" id="L2148"><a class="line-no" href="#L2148">2148</a>            num_reqs,</span>
+<span class="source-line" id="L2149"><a class="line-no" href="#L2149">2149</a>            self.query_start_loc.gpu[: num_reqs + 1],</span>
+<span class="source-line" id="L2150"><a class="line-no" href="#L2150">2150</a>            self.positions[:total_num_scheduled_tokens],</span>
+<span class="source-line" id="L2151"><a class="line-no" href="#L2151">2151</a>        )</span>
+<span class="source-line" id="L2152"><a class="line-no" href="#L2152">2152</a></span>
+<span class="source-line" id="L2153"><a class="line-no" href="#L2153">2153</a>        # Copy the tensors to the GPU.</span>
+<span class="source-line" id="L2154"><a class="line-no" href="#L2154">2154</a>        self._prepare_input_ids(</span>
+<span class="source-line" id="L2155"><a class="line-no" href="#L2155">2155</a>            scheduler_output,</span>
+<span class="source-line" id="L2156"><a class="line-no" href="#L2156">2156</a>            num_reqs,</span>
+<span class="source-line" id="L2157"><a class="line-no" href="#L2157">2157</a>            total_num_scheduled_tokens,</span>
+<span class="source-line" id="L2158"><a class="line-no" href="#L2158">2158</a>            cu_num_tokens,</span>
+<span class="source-line" id="L2159"><a class="line-no" href="#L2159">2159</a>        )</span>
+<span class="source-line" id="L2160"><a class="line-no" href="#L2160">2160</a></span>
+<span class="source-line" id="L2161"><a class="line-no" href="#L2161">2161</a>        if self.uses_mrope:</span>
+<span class="source-line" id="L2162"><a class="line-no" href="#L2162">2162</a>            # Only relevant for models using M-RoPE (e.g, Qwen2-VL)</span>
+<span class="source-line" id="L2163"><a class="line-no" href="#L2163">2163</a>            # Copy one row at a time. mrope_positions is allocated as</span>
+<span class="source-line" id="L2164"><a class="line-no" href="#L2164">2164</a>            # [num_dims, max_num_tokens + 1] with a dummy trailing column to keep it</span>
+<span class="source-line" id="L2165"><a class="line-no" href="#L2165">2165</a>            # non-contiguous for torch.compile, so cpu[:, :N] is a strided view.</span>
+<span class="source-line" id="L2166"><a class="line-no" href="#L2166">2166</a>            # copy_() cannot express a strided source as a single</span>
+<span class="source-line" id="L2167"><a class="line-no" href="#L2167">2167</a>            # cudaMemcpyAsync, so it first gathers into a contiguous *pageable*</span>
+<span class="source-line" id="L2168"><a class="line-no" href="#L2168">2168</a>            # temporary, and a pageable H2D ignores non_blocking=True and</span>
+<span class="source-line" id="L2169"><a class="line-no" href="#L2169">2169</a>            # synchronizes the stream before the transfer starts. Each row is</span>
+<span class="source-line" id="L2170"><a class="line-no" href="#L2170">2170</a>            # contiguous within the pinned allocation, so per-row copies stay on</span>
+<span class="source-line" id="L2171"><a class="line-no" href="#L2171">2171</a>            # the pinned path and are genuinely asynchronous.</span>
+<span class="source-line" id="L2172"><a class="line-no" href="#L2172">2172</a>            for row in range(self.mrope_positions.gpu.shape[0]):</span>
+<span class="source-line" id="L2173"><a class="line-no" href="#L2173">2173</a>                self.mrope_positions.gpu[row, :total_num_scheduled_tokens].copy_(</span>
+<span class="source-line" id="L2174"><a class="line-no" href="#L2174">2174</a>                    self.mrope_positions.cpu[row, :total_num_scheduled_tokens],</span>
+<span class="source-line" id="L2175"><a class="line-no" href="#L2175">2175</a>                    non_blocking=True,</span>
+<span class="source-line" id="L2176"><a class="line-no" href="#L2176">2176</a>                )</span>
+<span class="source-line" id="L2177"><a class="line-no" href="#L2177">2177</a>        if self.use_async_spec_decode and self.uses_mrope:</span>
+<span class="source-line" id="L2178"><a class="line-no" href="#L2178">2178</a>            drift = self.num_computed_tokens[req_indices_gpu].to(</span>
+<span class="source-line" id="L2179"><a class="line-no" href="#L2179">2179</a>                torch.int64</span>
+<span class="source-line" id="L2180"><a class="line-no" href="#L2180">2180</a>            ) - async_tensor_h2d(</span>
+<span class="source-line" id="L2181"><a class="line-no" href="#L2181">2181</a>                self.input_batch.num_computed_tokens_cpu_tensor[req_indices],</span>
+<span class="source-line" id="L2182"><a class="line-no" href="#L2182">2182</a>                device=self.device,</span>
+<span class="source-line" id="L2183"><a class="line-no" href="#L2183">2183</a>                dtype=torch.int64,</span>
+<span class="source-line" id="L2184"><a class="line-no" href="#L2184">2184</a>            )</span>
+<span class="source-line" id="L2185"><a class="line-no" href="#L2185">2185</a>            self.mrope_positions.gpu[:, :total_num_scheduled_tokens] += drift</span>
+<span class="source-line" id="L2186"><a class="line-no" href="#L2186">2186</a></span>
+<span class="source-line" id="L2187"><a class="line-no" href="#L2187">2187</a>        use_spec_decode = self.speculative_config is not None</span>
+<span class="source-line" id="L2188"><a class="line-no" href="#L2188">2188</a>        if not use_spec_decode:</span>
+<span class="source-line" id="L2189"><a class="line-no" href="#L2189">2189</a>            # NOTE(woosuk): Due to chunked prefills, the batch may contain</span>
+<span class="source-line" id="L2190"><a class="line-no" href="#L2190">2190</a>            # partial requests. While we should not sample any token</span>
+<span class="source-line" id="L2191"><a class="line-no" href="#L2191">2191</a>            # from these partial requests, we do so for simplicity.</span>
+<span class="source-line" id="L2192"><a class="line-no" href="#L2192">2192</a>            # We will ignore the sampled tokens from the partial requests.</span>
+<span class="source-line" id="L2193"><a class="line-no" href="#L2193">2193</a>            # TODO: Support prompt logprobs.</span>
+<span class="source-line" id="L2194"><a class="line-no" href="#L2194">2194</a>            logits_indices = query_start_loc[1:] - 1</span>
+<span class="source-line" id="L2195"><a class="line-no" href="#L2195">2195</a>            spec_decode_metadata = None</span>
+<span class="source-line" id="L2196"><a class="line-no" href="#L2196">2196</a>            num_sampled_tokens = np.ones(num_reqs, dtype=np.int32)</span></code></pre></main></body></html>

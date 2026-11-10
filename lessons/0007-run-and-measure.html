@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>07 · 跑起来并测量</title>
+<link rel="stylesheet" href="../assets/course.css?v=2">
+</head>
+<body>
+<div class="page">
+
+<nav class="lesson-nav">
+  <a href="0006-cuda-graph.html">← 06 CUDA Graph</a>
+  <a class="home" href="../index.html">课程索引</a>
+  <a class="right" href="0008-vllm-v1-architecture.html">08 vLLM v1 架构 →</a>
+</nav>
+
+<header>
+  <p class="kicker">课程 07 · 实验</p>
+  <h1>你自己的第一组数字</h1>
+  <p class="dek">前六课都在读代码。这一课把 nano-vllm 跑起来，用三组对照实验验证那些「理论上的取舍」到底值多少——这组数字就是你面试时可以拿出来的作品。</p>
+  <p class="meta">
+    <span>约 90 分钟（含跑 benchmark）</span>
+    <span>环境：WSL + CUDA</span>
+    <span>前置：01–06</span>
+  </p>
+</header><div class="aside"><strong>先准备课程源码目录。</strong><p>在线站点未打包完整上游仓库。请按<a href="../reference/start-here.html#sources">固定源码获取步骤</a>创建 vendor/nano-vllm，再执行本课命令。下方硬件示例以4070 Ti为参考，按自己的环境核对。</p></div>
+
+<h2><span class="num">1</span>环境自检（5 分钟）</h2>
+
+<p>在 WSL 里逐条跑，任何一条不符合就先停下来修：</p>
+
+<pre><code>nvidia-smi                      <span class="cm"># 能看到 4070 Ti，CUDA Version ≥ 12.1</span>
+python -V                       <span class="cm"># 3.10 – 3.12（nano-vllm 明确不支持 3.13）</span>
+python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_capability())"
+                                <span class="cm"># 期望 torch 2.4+ / True / (8, 9)</span>
+python -c "import triton, flash_attn; print(triton.__version__, flash_attn.__version__)"</code></pre>
+
+<p>四行都对，再继续。特别注意 <strong>sm_89</strong>：FlashAttention 的预编译 wheel 支持 8.9，但如果你装的是很老的版本，可能只支持到 8.0/8.6，会在运行时抛 <code>no kernel image is available</code>。</p>
+
+<h2><span class="num">2</span>装依赖、下模型（10 分钟）</h2>
+
+<pre><code>cd ~/vllm-learn/vendor/nano-vllm
+pip install -e .                <span class="cm"># 装 nanovllm 本身 + 依赖（torch/triton/flash-attn/xxhash）</span>
+</code></pre>
+
+<p>如果 <code>flash-attn</code> 这一步编译很久或失败，两个备选：</p>
+
+<ul>
+  <li>用预编译 wheel：<code>pip install flash-attn --no-build-isolation</code>（需要本机有 nvcc 与匹配的 torch）。</li>
+  <li>直接装 `flash_attn` 的最新 release wheel，注意 torch / CUDA / Python 三者版本必须对上。</li>
+</ul>
+
+<p>模型可从 Hugging Face 下载；若访问受限，可选择以下镜像方式：</p>
+
+<pre><code>export HF_ENDPOINT=https://hf-mirror.com
+hf download Qwen/Qwen3-0.6B --local-dir ~/huggingface/Qwen3-0.6B
+<span class="cm"># 旧版 CLI：huggingface-cli download --resume-download Qwen/Qwen3-0.6B --local-dir ~/huggingface/Qwen3-0.6B</span></code></pre>
+
+<div class="warn">
+  <span class="label">路径要对上</span>
+  <p><code>example.py</code> 和 <code>bench.py</code> 都写死了 <code>~/huggingface/Qwen3-0.6B/</code>。放别处就改这两行，或者建个软链接。</p>
+</div>
+
+<h2><span class="num">3</span>第一次生成（10 分钟）</h2>
+
+<pre><code>python example.py</code></pre>
+
+<p>应该看到两条 prompt 的完整输出。第一次跑会慢——要加载权重、warmup、分配 KV、录图（<code>enforce_eager=True</code> 时不录）。如果卡住了：</p>
+
+<ul>
+  <li><code>enforce_eager=True</code> 下仍 OOM → 把 <code>gpu_memory_utilization</code> 降到 0.8。</li>
+  <li><code>flash_attn</code> 报 sm 不支持 → 换 wheel 版本。</li>
+  <li>NCCL 报错（TP=1 时不应该）→ 检查是不是装了多版本 torch。</li>
+</ul>
+
+<h2><span class="num">4</span>基准测试：先跑原版</h2>
+
+<pre><code>python bench.py</code></pre>
+
+<p>脚本做的是：256 条请求，输入 100–1024 token，输出 100–1024 token，<code>ignore_eos=True</code>，用总输出 token 数除以总时间得到吞吐。<strong>先跑两遍</strong>，第二遍的数字才是稳的。</p>
+
+<p>记录三个数：</p>
+
+<table>
+  <thead><tr><th>指标</th><th>怎么读</th><th>你的值</th></tr></thead>
+  <tbody>
+    <tr><td>总吞吐 (tok/s)</td><td>tqdm 进度条上的 Prefill / Decode，或脚本打印的 Throughput</td><td>______</td></tr>
+    <tr><td>首轮耗时</td><td>第一次 <code>generate</code> 明显更慢（warmup + 录图）</td><td>______</td></tr>
+    <tr><td>显存峰值</td><td><code>nvidia-smi -l 1</code> 另开一个窗口观察</td><td>______</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">5</span>三组对照实验</h2>
+
+<p>每改一个参数，只改一个，其余保持不动。每组跑两遍取第二遍。</p>
+
+<h3>实验 ①：CUDA Graph 值多少</h3>
+
+<p>把 <code>bench.py</code> 第 15 行的 <code>enforce_eager=False</code> 改成 <code>True</code>，再跑一次。</p>
+
+<p>预期：<strong>decode 吞吐明显下降，prefill 几乎不变</strong>（prefill 本来就不走图）。如果你看到的是「两者都降」，说明瓶颈不在启动开销——记录下来，这是有价值的异常。</p>
+
+<h3>实验 ②：max_num_seqs 与显存</h3>
+
+<p>在 <code>LLM(...)</code> 里加 <code>max_num_seqs=64</code>，再跑。然后试 <code>max_num_seqs=256</code>。</p>
+
+<p>预期：调小会让并发上限变低，吞吐下降，但单条请求的延迟更稳；调大不一定更好——如果 256 条序列需要的 KV 块超过显存，调度器会频繁抢占，<strong>吞吐反而可能下降</strong>。这正是第 03 课那个「三个旋钮互相制约」的实证。</p>
+
+<h3>实验 ③：前缀缓存真的有用吗</h3>
+
+<p>构造 8 条请求，prompt 的前 800 token 完全相同，只有末尾不同：</p>
+
+<pre><code>prefix = "You are a helpful assistant. " * 40      <span class="cm"># 约 800 token</span>
+prompts = [prefix + f"Question {i}: ..." for i in range(8)]
+
+import time
+t = time.time(); llm.generate(prompts, SamplingParams(max_tokens=32)); print("cold", time.time() - t)
+t = time.time(); llm.generate(prompts, SamplingParams(max_tokens=32)); print("warm", time.time() - t)</code></pre>
+
+<p>第二次会快，因为前缀块命中缓存，prefill 只需要算末尾那几十个 token。<strong>把 prefix 长度改成 100 token 再跑一次</strong>——差距会小很多，因为短前缀跨不过一个 block（256）的边界，压根没被登记哈希。</p>
+
+<div class="key">
+  <span class="label">这个实验的意义</span>
+  <p>它同时验证了第 02 课的两个结论：<strong>前缀缓存按块命中</strong>，以及<strong>短于一个块的前缀不会被缓存</strong>。面试里讲这个细节，比背 PagedAttention 的定义强得多。</p>
+</div>
+
+<h2><span class="num">6</span>把数字画出来</h2>
+
+<p>最少做一张表；有时间就画曲线（吞吐 vs max_num_seqs、延迟 vs batch）：</p>
+
+<pre><code>import matplotlib.pyplot as plt
+xs = [64, 128, 256, 512]
+ys = [ ... ]          <span class="cm"># 你测出来的吞吐</span>
+plt.plot(xs, ys, marker="o")
+plt.xlabel("max_num_seqs"); plt.ylabel("throughput (tok/s)")
+plt.title("Qwen3-0.6B on RTX 4070 Ti — nano-vllm")
+plt.savefig("throughput.png", dpi=160)</code></pre>
+
+<p>把图存进 <code>experiments/</code>，面试时可以直接打开讲。</p>
+
+<h2><span class="num">7</span>练习 · 闭卷测验</h2>
+
+<div class="quiz" data-quiz="bench"></div>
+
+<h2><span class="num">8</span>记录模板</h2>
+
+<p>把你的结果填进这个表（也可以直接写进 <code>experiments/results.md</code>）：</p>
+
+<table>
+  <thead><tr><th>实验</th><th>配置</th><th>吞吐 (tok/s)</th><th>观察</th></tr></thead>
+  <tbody>
+    <tr><td>基线</td><td>默认</td><td></td><td></td></tr>
+    <tr><td>①</td><td>enforce_eager=True</td><td></td><td></td></tr>
+    <tr><td>②</td><td>max_num_seqs=64</td><td></td><td></td></tr>
+    <tr><td>③</td><td>长前缀 × 2 次</td><td></td><td></td></tr>
+  </tbody>
+</table>
+
+<div class="ask-teacher">
+  <p><strong>数字不对劲就来问。</strong> 把 <code>nvidia-smi</code> 截图、tqdm 的输出、以及你改的参数发给我，我帮你判断是环境问题还是理解偏差。</p>
+</div>
+
+<footer class="lesson-footer">
+  <h3>主源与延伸</h3>
+  <ul>
+    <li><strong>主源</strong>：<code>bench.py</code>（32 行，读完整）以及 nano-vllm README 里的官方 benchmark 表。</li>
+    <li>对照：在同一个 bench 里把 <code>from nanovllm import LLM</code> 换成 vLLM（脚本里已注释好），同硬件比一次。</li>
+    <li>下一课：<strong>08 · vLLM v1 架构</strong>——从 1450 行走到 20 万行，先看骨架变在哪。</li>
+  </ul>
+</footer>
+
+</div>
+<script src="../assets/quiz.js?v=2"></script>
+<script>
+CourseQuiz.mount('[data-quiz="bench"]', {
+  questions: [
+    {
+      q: 'bench.py 里先把 <code>enforce_eager</code> 设为 False，是因为：',
+      options: [
+        '要测出真实 decode 性能',
+        'False 更省显存',
+        'True 会导致结果错误',
+        'False 启动更快'
+      ],
+      answer: 0,
+      why: ' True 会关掉 CUDA Graph，decode 每步多几百次 kernel launch，测出来的不是真实性能。'
+    },
+    {
+      q: '前缀缓存实验里，把前缀从 800 token 缩到 100 token 后效果消失，原因是：',
+      options: [
+        '短前缀跨不过一个 block',
+        '缓存只对英文生效',
+        '采样温度影响了命中',
+        '需要手动开启缓存'
+      ],
+      answer: 0,
+      why: ' 只有填满的块才会被 `hash_blocks` 登记；100 token 不足一个 256 的块，永远无法命中。'
+    },
+    {
+      q: '把 `max_num_seqs` 调大后吞吐反而下降，最可能因为：',
+      options: [
+        'KV 块不足导致频繁抢占',
+        'GPU 时钟被降频',
+        '分词器成为瓶颈',
+        '模型权重被换出'
+      ],
+      answer: 0,
+      why: ' 并发序列越多，需要的块越多；不足时调度器不停抢占、重算 KV，反而拖慢整体。'
+    },
+    {
+      q: '第一次 `generate` 比后面慢很多，主要因为：',
+      options: [
+        'warmup 与录图只做一次',
+        '第一次需要下载模型',
+        'GPU 需要预热到最高频率',
+        '分词器缓存尚未建立'
+      ],
+      answer: 0,
+      why: ' 首次调用会触发权重加载、warmup 前向、KV 分配与 CUDA Graph 录制，这些都是一次性开销。'
+    }
+  ]
+});
+</script>
+<script src="../assets/highlight.js?v=2"></script>
+<script src="../assets/lesson-ui.js?v=2"></script>
+</body>
+</html>

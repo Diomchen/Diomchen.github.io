@@ -1,0 +1,29 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>vllm-slot</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>vllm-slot</h1><p class="source-note">vllm/vllm/v1/worker/block_table.py · ef9339e · L348–376 · <a href="https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/worker/block_table.py#L348-L376">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>vllm · Apache-2.0</strong><p>Copyright contributors to the vLLM project。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L348"><a class="line-no" href="#L348">348</a>        start_idx = tl.load(query_start_loc_ptr + req_idx).to(tl.int64)</span>
+<span class="source-line" id="L349"><a class="line-no" href="#L349">349</a>        end_idx = tl.load(query_start_loc_ptr + req_idx + 1).to(tl.int64)</span>
+<span class="source-line" id="L350"><a class="line-no" href="#L350">350</a></span>
+<span class="source-line" id="L351"><a class="line-no" href="#L351">351</a>        virtual_block_size = KV_CACHE_BLOCK_SIZE * TOTAL_CP_WORLD_SIZE</span>
+<span class="source-line" id="L352"><a class="line-no" href="#L352">352</a>        row_offset = req_idx * block_table_stride</span>
+<span class="source-line" id="L353"><a class="line-no" href="#L353">353</a>        for i in range(start_idx, end_idx, BLOCK_SIZE):</span>
+<span class="source-line" id="L354"><a class="line-no" href="#L354">354</a>            offsets = i + tl.arange(0, BLOCK_SIZE)</span>
+<span class="source-line" id="L355"><a class="line-no" href="#L355">355</a>            mask = offsets &lt; end_idx</span>
+<span class="source-line" id="L356"><a class="line-no" href="#L356">356</a>            pos = tl.load(positions_ptr + offsets, mask=mask, other=0)</span>
+<span class="source-line" id="L357"><a class="line-no" href="#L357">357</a>            virtual_block_indices = pos // virtual_block_size</span>
+<span class="source-line" id="L358"><a class="line-no" href="#L358">358</a>            virtual_block_offsets = pos - virtual_block_indices * virtual_block_size</span>
+<span class="source-line" id="L359"><a class="line-no" href="#L359">359</a>            is_local = (</span>
+<span class="source-line" id="L360"><a class="line-no" href="#L360">360</a>                virtual_block_offsets // CP_KV_CACHE_INTERLEAVE_SIZE</span>
+<span class="source-line" id="L361"><a class="line-no" href="#L361">361</a>            ) % TOTAL_CP_WORLD_SIZE == TOTAL_CP_RANK</span>
+<span class="source-line" id="L362"><a class="line-no" href="#L362">362</a>            local_block_offsets = (</span>
+<span class="source-line" id="L363"><a class="line-no" href="#L363">363</a>                virtual_block_offsets</span>
+<span class="source-line" id="L364"><a class="line-no" href="#L364">364</a>                // (TOTAL_CP_WORLD_SIZE * CP_KV_CACHE_INTERLEAVE_SIZE)</span>
+<span class="source-line" id="L365"><a class="line-no" href="#L365">365</a>            ) * CP_KV_CACHE_INTERLEAVE_SIZE + (</span>
+<span class="source-line" id="L366"><a class="line-no" href="#L366">366</a>                virtual_block_offsets % CP_KV_CACHE_INTERLEAVE_SIZE</span>
+<span class="source-line" id="L367"><a class="line-no" href="#L367">367</a>            )</span>
+<span class="source-line" id="L368"><a class="line-no" href="#L368">368</a></span>
+<span class="source-line" id="L369"><a class="line-no" href="#L369">369</a>            block_numbers = tl.load(</span>
+<span class="source-line" id="L370"><a class="line-no" href="#L370">370</a>                block_table_ptr + row_offset + virtual_block_indices,</span>
+<span class="source-line" id="L371"><a class="line-no" href="#L371">371</a>                mask=mask &amp; is_local,</span>
+<span class="source-line" id="L372"><a class="line-no" href="#L372">372</a>                other=0,</span>
+<span class="source-line" id="L373"><a class="line-no" href="#L373">373</a>            ).to(tl.int64)</span>
+<span class="source-line" id="L374"><a class="line-no" href="#L374">374</a>            slot_ids = block_numbers * KV_CACHE_BLOCK_SIZE + local_block_offsets</span>
+<span class="source-line" id="L375"><a class="line-no" href="#L375">375</a>            slot_ids = tl.where(is_local, slot_ids, PAD_ID)</span>
+<span class="source-line" id="L376"><a class="line-no" href="#L376">376</a>            tl.store(slot_mapping_ptr + offsets, slot_ids, mask=mask)</span></code></pre></main></body></html>

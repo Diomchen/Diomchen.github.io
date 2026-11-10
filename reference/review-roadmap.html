@@ -1,0 +1,13 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>把课程变成可以验证的能力</title><link rel="stylesheet" href="../assets/course.css?v=2"><link rel="stylesheet" href="../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../index.html">← 课程首页</a><a href="visual-atlas.html">图解索引</a><a href="source-map.html">源码索引</a></nav><header><p class="kicker">离线速查 / 2026-11-08</p><h1>把课程变成可以验证的能力</h1></header>
+<p class="dek">沿用“岗位面试 + 源码贡献”的使命。先补数学底座，再回到引擎；不把“已阅读”计作“已掌握”。</p>
+<h2>建议顺序</h2><ol><li><strong>15–18：</strong>形状、attention、mask、GQA。成果：一张无歧义的形状表。</li><li><strong>19–23：</strong>RoPE、decoder、KV、FlashAttention、采样。成果：跑通完整/增量等价实验。</li><li><strong>01–06 + 24–26：</strong>nano请求状态、物理槽和graph边界。成果：手推一条请求全生命周期。</li><li><strong>08–11 + 27–29：</strong>vLLM预算、块池、runner。成果：追踪一轮混合批与一次draft回退。</li><li><strong>12–14 + 30–32：</strong>DeepInfer专用调度、EPLB、DSpark。成果：自己重算放置与验证预算。</li><li><strong>07：</strong>在既有WSL单卡环境运行真实测量，填入实验表。成果：带完整配置的真实曲线或数据。</li></ol>
+<h2>每天90分钟如何用</h2><p>10分钟闭卷复述昨天内容，20分钟读一节短课，25分钟手算/CPU实验，25分钟跟源码，10分钟写下仍不能解释的变量。时间只是建议；不需要一次读完所有18节。</p>
+<table><tr><th>复习时点</th><th>检索任务</th><th>通过证据</th></tr><tr><td>第1天</td><td>不看正文重新画图</td><td>形状、方向和边界均正确</td></tr><tr><td>第3天</td><td>换一组数重新推</td><td>能解释结果而非背答案</td></tr><tr><td>第7天</td><td>混合两个相近主题</td><td>能区分mask/slot、computed/committed、GQA/MLA</td></tr></table>
+<h2>三个小作品</h2><ul><li><strong>Transformer数值报告：</strong>记录full/incremental/chunked误差，故意错误mask的偏差，解释浮点容限。</li><li><strong>nano可观察性：</strong>在独立工作副本记录N/C/S、prefix hit、抢占、真实bs/graph bucket；固定输入比较eager与graph。</li><li><strong>vLLM读码提案：</strong>选择一个状态不变量，给出触发条件、调用链、期望结果和最小复现，再考虑是否形成PR；DeepInfer可以先从映射/状态算例练习。</li></ul>
+<h2>开始运行</h2><pre><code>python labs/transformer_lab.py all
+python labs/inference_lab.py all</code></pre><p>详见<a href="../labs/README.md">实验说明</a>与<a href="../labs/benchmark-template.csv">真实GPU实验记录表</a>。CPU算例不会产出GPU性能数字。</p>
+<h2>反馈给老师的格式</h2><pre><code>第__课 / 源码文件__ / 行号__
+我认为这个变量表示：__
+我手算得到：__；实验实际得到：__
+我不能解释的转折是：__</code></pre><p>页面自评存在当前浏览器；换浏览器或清除本地存储后可能消失。只有你展示真实理解后，老师才补充learning-records中的掌握证据。</p>
+</main><script src="../assets/quiz.js"></script><script src="../assets/explorers.js"></script><script src="../assets/highlight.js?v=2"></script><script src="../assets/lesson-ui.js?v=2"></script></body></html>

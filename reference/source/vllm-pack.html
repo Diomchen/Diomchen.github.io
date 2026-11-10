@@ -1,0 +1,142 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>vllm-pack</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>vllm-pack</h1><p class="source-note">vllm/vllm/v1/worker/gpu_model_runner.py · ef9339e · L1923–2064 · <a href="https://github.com/vllm-project/vllm/blob/ef9339e64d458b10ab49b2c9af35645eff6388fd/vllm/v1/worker/gpu_model_runner.py#L1923-L2064">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>vllm · Apache-2.0</strong><p>Copyright contributors to the vLLM project。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L1923"><a class="line-no" href="#L1923">1923</a>    def _prepare_inputs(</span>
+<span class="source-line" id="L1924"><a class="line-no" href="#L1924">1924</a>        self,</span>
+<span class="source-line" id="L1925"><a class="line-no" href="#L1925">1925</a>        scheduler_output: &quot;SchedulerOutput&quot;,</span>
+<span class="source-line" id="L1926"><a class="line-no" href="#L1926">1926</a>        num_scheduled_tokens: np.ndarray,</span>
+<span class="source-line" id="L1927"><a class="line-no" href="#L1927">1927</a>    ) -&gt; tuple[</span>
+<span class="source-line" id="L1928"><a class="line-no" href="#L1928">1928</a>        torch.Tensor,</span>
+<span class="source-line" id="L1929"><a class="line-no" href="#L1929">1929</a>        SpecDecodeMetadata | None,</span>
+<span class="source-line" id="L1930"><a class="line-no" href="#L1930">1930</a>        int,</span>
+<span class="source-line" id="L1931"><a class="line-no" href="#L1931">1931</a>    ]:</span>
+<span class="source-line" id="L1932"><a class="line-no" href="#L1932">1932</a>        &quot;&quot;&quot;Returns:</span>
+<span class="source-line" id="L1933"><a class="line-no" href="#L1933">1933</a>        tuple[logits_indices, spec_decode_metadata, max_num_sampled_tokens]</span>
+<span class="source-line" id="L1934"><a class="line-no" href="#L1934">1934</a></span>
+<span class="source-line" id="L1935"><a class="line-no" href="#L1935">1935</a>        &quot;&quot;&quot;</span>
+<span class="source-line" id="L1936"><a class="line-no" href="#L1936">1936</a>        total_num_scheduled_tokens = scheduler_output.total_num_scheduled_tokens</span>
+<span class="source-line" id="L1937"><a class="line-no" href="#L1937">1937</a>        assert total_num_scheduled_tokens &gt; 0</span>
+<span class="source-line" id="L1938"><a class="line-no" href="#L1938">1938</a>        num_reqs = self.input_batch.num_reqs</span>
+<span class="source-line" id="L1939"><a class="line-no" href="#L1939">1939</a>        assert num_reqs &gt; 0</span>
+<span class="source-line" id="L1940"><a class="line-no" href="#L1940">1940</a></span>
+<span class="source-line" id="L1941"><a class="line-no" href="#L1941">1941</a>        # OPTIMIZATION: Start copying the block table first.</span>
+<span class="source-line" id="L1942"><a class="line-no" href="#L1942">1942</a>        # This way, we can overlap the copy with the following CPU operations.</span>
+<span class="source-line" id="L1943"><a class="line-no" href="#L1943">1943</a>        self.input_batch.block_table.commit_block_table(num_reqs)</span>
+<span class="source-line" id="L1944"><a class="line-no" href="#L1944">1944</a></span>
+<span class="source-line" id="L1945"><a class="line-no" href="#L1945">1945</a>        # Get request indices.</span>
+<span class="source-line" id="L1946"><a class="line-no" href="#L1946">1946</a>        # E.g., [2, 5, 3] -&gt; [0, 0, 1, 1, 1, 1, 1, 2, 2, 2]</span>
+<span class="source-line" id="L1947"><a class="line-no" href="#L1947">1947</a>        req_indices = np.repeat(self.arange_np[:num_reqs], num_scheduled_tokens)</span>
+<span class="source-line" id="L1948"><a class="line-no" href="#L1948">1948</a></span>
+<span class="source-line" id="L1949"><a class="line-no" href="#L1949">1949</a>        # cu_num_tokens: [2, 5, 3] -&gt; [2, 7, 10]</span>
+<span class="source-line" id="L1950"><a class="line-no" href="#L1950">1950</a>        # self.query_pos.np[:10]: [0, 1, 0, 1, 2, 3, 4, 0, 1, 2]</span>
+<span class="source-line" id="L1951"><a class="line-no" href="#L1951">1951</a>        cu_num_tokens = self._get_cumsum_and_arange(</span>
+<span class="source-line" id="L1952"><a class="line-no" href="#L1952">1952</a>            num_scheduled_tokens, self.query_pos.np</span>
+<span class="source-line" id="L1953"><a class="line-no" href="#L1953">1953</a>        )</span>
+<span class="source-line" id="L1954"><a class="line-no" href="#L1954">1954</a></span>
+<span class="source-line" id="L1955"><a class="line-no" href="#L1955">1955</a>        # Get positions.</span>
+<span class="source-line" id="L1956"><a class="line-no" href="#L1956">1956</a>        positions_np = (</span>
+<span class="source-line" id="L1957"><a class="line-no" href="#L1957">1957</a>            self.input_batch.num_computed_tokens_cpu[req_indices]</span>
+<span class="source-line" id="L1958"><a class="line-no" href="#L1958">1958</a>            + self.query_pos.np[: cu_num_tokens[-1]]</span>
+<span class="source-line" id="L1959"><a class="line-no" href="#L1959">1959</a>        )</span>
+<span class="source-line" id="L1960"><a class="line-no" href="#L1960">1960</a></span>
+<span class="source-line" id="L1961"><a class="line-no" href="#L1961">1961</a>        # Calculate M-RoPE positions.</span>
+<span class="source-line" id="L1962"><a class="line-no" href="#L1962">1962</a>        # Only relevant for models using M-RoPE (e.g, Qwen2-VL)</span>
+<span class="source-line" id="L1963"><a class="line-no" href="#L1963">1963</a>        if self.uses_mrope:</span>
+<span class="source-line" id="L1964"><a class="line-no" href="#L1964">1964</a>            self._calc_mrope_positions(scheduler_output)</span>
+<span class="source-line" id="L1965"><a class="line-no" href="#L1965">1965</a></span>
+<span class="source-line" id="L1966"><a class="line-no" href="#L1966">1966</a>        # Get token indices.</span>
+<span class="source-line" id="L1967"><a class="line-no" href="#L1967">1967</a>        # E.g., [0, 1, 0, 1, 2, 3, 4, 0, 1, 2]</span>
+<span class="source-line" id="L1968"><a class="line-no" href="#L1968">1968</a>        # -&gt; [0, 1, M, M + 1, M + 2, M + 3, M + 4, 2 * M, 2 * M + 1, 2 * M + 2]</span>
+<span class="source-line" id="L1969"><a class="line-no" href="#L1969">1969</a>        # where M is the max_model_len.</span>
+<span class="source-line" id="L1970"><a class="line-no" href="#L1970">1970</a>        token_indices = (</span>
+<span class="source-line" id="L1971"><a class="line-no" href="#L1971">1971</a>            positions_np + req_indices * self.input_batch.token_ids_cpu.shape[1]</span>
+<span class="source-line" id="L1972"><a class="line-no" href="#L1972">1972</a>        )</span>
+<span class="source-line" id="L1973"><a class="line-no" href="#L1973">1973</a>        token_indices_tensor = torch.from_numpy(token_indices)</span>
+<span class="source-line" id="L1974"><a class="line-no" href="#L1974">1974</a></span>
+<span class="source-line" id="L1975"><a class="line-no" href="#L1975">1975</a>        # NOTE(woosuk): We use torch.index_select instead of np.take here</span>
+<span class="source-line" id="L1976"><a class="line-no" href="#L1976">1976</a>        # because torch.index_select is much faster than np.take for large</span>
+<span class="source-line" id="L1977"><a class="line-no" href="#L1977">1977</a>        # tensors.</span>
+<span class="source-line" id="L1978"><a class="line-no" href="#L1978">1978</a>        torch.index_select(</span>
+<span class="source-line" id="L1979"><a class="line-no" href="#L1979">1979</a>            self.input_batch.token_ids_cpu_tensor.flatten(),</span>
+<span class="source-line" id="L1980"><a class="line-no" href="#L1980">1980</a>            0,</span>
+<span class="source-line" id="L1981"><a class="line-no" href="#L1981">1981</a>            token_indices_tensor,</span>
+<span class="source-line" id="L1982"><a class="line-no" href="#L1982">1982</a>            out=self.input_ids.cpu[:total_num_scheduled_tokens],</span>
+<span class="source-line" id="L1983"><a class="line-no" href="#L1983">1983</a>        )</span>
+<span class="source-line" id="L1984"><a class="line-no" href="#L1984">1984</a>        if self.enable_prompt_embeds:</span>
+<span class="source-line" id="L1985"><a class="line-no" href="#L1985">1985</a>            is_token_ids = self.input_batch.is_token_ids_tensor.flatten()</span>
+<span class="source-line" id="L1986"><a class="line-no" href="#L1986">1986</a>            torch.index_select(</span>
+<span class="source-line" id="L1987"><a class="line-no" href="#L1987">1987</a>                is_token_ids,</span>
+<span class="source-line" id="L1988"><a class="line-no" href="#L1988">1988</a>                0,</span>
+<span class="source-line" id="L1989"><a class="line-no" href="#L1989">1989</a>                token_indices_tensor,</span>
+<span class="source-line" id="L1990"><a class="line-no" href="#L1990">1990</a>                out=self.is_token_ids.cpu[:total_num_scheduled_tokens],</span>
+<span class="source-line" id="L1991"><a class="line-no" href="#L1991">1991</a>            )</span>
+<span class="source-line" id="L1992"><a class="line-no" href="#L1992">1992</a></span>
+<span class="source-line" id="L1993"><a class="line-no" href="#L1993">1993</a>        # Because we did not pre-allocate a massive prompt_embeds CPU tensor on</span>
+<span class="source-line" id="L1994"><a class="line-no" href="#L1994">1994</a>        # the InputBatch, we need to fill in the prompt embeds into the expected</span>
+<span class="source-line" id="L1995"><a class="line-no" href="#L1995">1995</a>        # spots in the GpuModelRunner&#x27;s pre-allocated prompt_embeds tensor.</span>
+<span class="source-line" id="L1996"><a class="line-no" href="#L1996">1996</a>        if self.input_batch.req_prompt_embeds:</span>
+<span class="source-line" id="L1997"><a class="line-no" href="#L1997">1997</a>            output_idx = 0</span>
+<span class="source-line" id="L1998"><a class="line-no" href="#L1998">1998</a>            for req_idx in range(num_reqs):</span>
+<span class="source-line" id="L1999"><a class="line-no" href="#L1999">1999</a>                num_sched = num_scheduled_tokens[req_idx]</span>
+<span class="source-line" id="L2000"><a class="line-no" href="#L2000">2000</a></span>
+<span class="source-line" id="L2001"><a class="line-no" href="#L2001">2001</a>                # Skip if this request doesn&#x27;t have embeddings</span>
+<span class="source-line" id="L2002"><a class="line-no" href="#L2002">2002</a>                if req_idx not in self.input_batch.req_prompt_embeds:</span>
+<span class="source-line" id="L2003"><a class="line-no" href="#L2003">2003</a>                    output_idx += num_sched</span>
+<span class="source-line" id="L2004"><a class="line-no" href="#L2004">2004</a>                    continue</span>
+<span class="source-line" id="L2005"><a class="line-no" href="#L2005">2005</a></span>
+<span class="source-line" id="L2006"><a class="line-no" href="#L2006">2006</a>                # Skip if no tokens scheduled</span>
+<span class="source-line" id="L2007"><a class="line-no" href="#L2007">2007</a>                if num_sched &lt;= 0:</span>
+<span class="source-line" id="L2008"><a class="line-no" href="#L2008">2008</a>                    output_idx += num_sched</span>
+<span class="source-line" id="L2009"><a class="line-no" href="#L2009">2009</a>                    continue</span>
+<span class="source-line" id="L2010"><a class="line-no" href="#L2010">2010</a></span>
+<span class="source-line" id="L2011"><a class="line-no" href="#L2011">2011</a>                req_embeds = self.input_batch.req_prompt_embeds[req_idx]</span>
+<span class="source-line" id="L2012"><a class="line-no" href="#L2012">2012</a>                start_pos = self.input_batch.num_computed_tokens_cpu[req_idx]</span>
+<span class="source-line" id="L2013"><a class="line-no" href="#L2013">2013</a></span>
+<span class="source-line" id="L2014"><a class="line-no" href="#L2014">2014</a>                # Skip if trying to read beyond available embeddings</span>
+<span class="source-line" id="L2015"><a class="line-no" href="#L2015">2015</a>                if start_pos &gt;= req_embeds.shape[0]:</span>
+<span class="source-line" id="L2016"><a class="line-no" href="#L2016">2016</a>                    output_idx += num_sched</span>
+<span class="source-line" id="L2017"><a class="line-no" href="#L2017">2017</a>                    continue</span>
+<span class="source-line" id="L2018"><a class="line-no" href="#L2018">2018</a></span>
+<span class="source-line" id="L2019"><a class="line-no" href="#L2019">2019</a>                # Copy available embeddings</span>
+<span class="source-line" id="L2020"><a class="line-no" href="#L2020">2020</a>                end_pos = start_pos + num_sched</span>
+<span class="source-line" id="L2021"><a class="line-no" href="#L2021">2021</a>                actual_end = min(end_pos, req_embeds.shape[0])</span>
+<span class="source-line" id="L2022"><a class="line-no" href="#L2022">2022</a>                actual_num_sched = actual_end - start_pos</span>
+<span class="source-line" id="L2023"><a class="line-no" href="#L2023">2023</a></span>
+<span class="source-line" id="L2024"><a class="line-no" href="#L2024">2024</a>                if actual_num_sched &gt; 0:</span>
+<span class="source-line" id="L2025"><a class="line-no" href="#L2025">2025</a>                    self.inputs_embeds.cpu[</span>
+<span class="source-line" id="L2026"><a class="line-no" href="#L2026">2026</a>                        output_idx : output_idx + actual_num_sched</span>
+<span class="source-line" id="L2027"><a class="line-no" href="#L2027">2027</a>                    ].copy_(req_embeds[start_pos:actual_end])</span>
+<span class="source-line" id="L2028"><a class="line-no" href="#L2028">2028</a></span>
+<span class="source-line" id="L2029"><a class="line-no" href="#L2029">2029</a>                output_idx += num_sched</span>
+<span class="source-line" id="L2030"><a class="line-no" href="#L2030">2030</a></span>
+<span class="source-line" id="L2031"><a class="line-no" href="#L2031">2031</a>        # Prepare the attention metadata.</span>
+<span class="source-line" id="L2032"><a class="line-no" href="#L2032">2032</a>        self.query_start_loc.np[0] = 0</span>
+<span class="source-line" id="L2033"><a class="line-no" href="#L2033">2033</a>        self.query_start_loc.np[1 : num_reqs + 1] = cu_num_tokens</span>
+<span class="source-line" id="L2034"><a class="line-no" href="#L2034">2034</a>        # Note: pad query_start_loc to be non-decreasing, as kernels</span>
+<span class="source-line" id="L2035"><a class="line-no" href="#L2035">2035</a>        # like FlashAttention requires that</span>
+<span class="source-line" id="L2036"><a class="line-no" href="#L2036">2036</a>        self.query_start_loc.np[num_reqs + 1 :].fill(cu_num_tokens[-1])</span>
+<span class="source-line" id="L2037"><a class="line-no" href="#L2037">2037</a>        self.query_start_loc.copy_to_gpu()</span>
+<span class="source-line" id="L2038"><a class="line-no" href="#L2038">2038</a>        query_start_loc = self.query_start_loc.gpu[: num_reqs + 1]</span>
+<span class="source-line" id="L2039"><a class="line-no" href="#L2039">2039</a></span>
+<span class="source-line" id="L2040"><a class="line-no" href="#L2040">2040</a>        # Compute optimistic seq_lens (assumes all draft tokens from previous</span>
+<span class="source-line" id="L2041"><a class="line-no" href="#L2041">2041</a>        # iteration accepted). Store in optimistic_seq_lens_cpu for use by</span>
+<span class="source-line" id="L2042"><a class="line-no" href="#L2042">2042</a>        # _build_attention_metadata (max_seq_len) and discard_request_mask.</span>
+<span class="source-line" id="L2043"><a class="line-no" href="#L2043">2043</a>        # seq_lens (GPU) will be computed later using the same optimistic values.</span>
+<span class="source-line" id="L2044"><a class="line-no" href="#L2044">2044</a>        torch.add(</span>
+<span class="source-line" id="L2045"><a class="line-no" href="#L2045">2045</a>            self.input_batch.num_computed_tokens_cpu_tensor[:num_reqs],</span>
+<span class="source-line" id="L2046"><a class="line-no" href="#L2046">2046</a>            torch.from_numpy(num_scheduled_tokens),</span>
+<span class="source-line" id="L2047"><a class="line-no" href="#L2047">2047</a>            out=self.optimistic_seq_lens_cpu[:num_reqs],</span>
+<span class="source-line" id="L2048"><a class="line-no" href="#L2048">2048</a>        )</span>
+<span class="source-line" id="L2049"><a class="line-no" href="#L2049">2049</a>        self.optimistic_seq_lens_cpu[num_reqs:].fill_(0)</span>
+<span class="source-line" id="L2050"><a class="line-no" href="#L2050">2050</a></span>
+<span class="source-line" id="L2051"><a class="line-no" href="#L2051">2051</a>        # Build prev_positions mapping: current pos -&gt; prev pos (-1 if new).</span>
+<span class="source-line" id="L2052"><a class="line-no" href="#L2052">2052</a>        # Used for gathering from previous iteration&#x27;s GPU tensors.</span>
+<span class="source-line" id="L2053"><a class="line-no" href="#L2053">2053</a>        prev_req_id_to_index = self.input_batch.prev_req_id_to_index</span>
+<span class="source-line" id="L2054"><a class="line-no" href="#L2054">2054</a>        self._compute_prev_positions(num_reqs)</span>
+<span class="source-line" id="L2055"><a class="line-no" href="#L2055">2055</a></span>
+<span class="source-line" id="L2056"><a class="line-no" href="#L2056">2056</a>        num_tokens = [self.requests[r].num_tokens for r in self.input_batch.req_ids]</span>
+<span class="source-line" id="L2057"><a class="line-no" href="#L2057">2057</a>        num_tokens_np = np.array(num_tokens, dtype=np.int32)</span>
+<span class="source-line" id="L2058"><a class="line-no" href="#L2058">2058</a></span>
+<span class="source-line" id="L2059"><a class="line-no" href="#L2059">2059</a>        # Record which requests should not be sampled,</span>
+<span class="source-line" id="L2060"><a class="line-no" href="#L2060">2060</a>        # so that we could clear the sampled tokens before returning</span>
+<span class="source-line" id="L2061"><a class="line-no" href="#L2061">2061</a>        self.discard_request_mask.np[:num_reqs] = (</span>
+<span class="source-line" id="L2062"><a class="line-no" href="#L2062">2062</a>            self.optimistic_seq_lens_cpu[:num_reqs].numpy() &lt; num_tokens_np</span>
+<span class="source-line" id="L2063"><a class="line-no" href="#L2063">2063</a>        )</span>
+<span class="source-line" id="L2064"><a class="line-no" href="#L2064">2064</a>        self.discard_request_mask.copy_to_gpu(num_reqs)</span></code></pre></main></body></html>

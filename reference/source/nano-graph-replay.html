@@ -1,0 +1,25 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>nano-graph-replay</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>nano-graph-replay</h1><p class="source-note">nano-vllm/nanovllm/engine/model_runner.py · bb823b3 · L196–220 · <a href="https://github.com/GeeeekExplorer/nano-vllm/blob/bb823b3e06983d71485a8e1f23715ebd87d98ef8/nanovllm/engine/model_runner.py#L196-L220">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>nano-vllm · MIT</strong><p>Copyright (c) 2025 Xingkai Yu。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/nano-vllm/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L196"><a class="line-no" href="#L196">196</a>    def run_model(self, input_ids: torch.Tensor, positions: torch.Tensor, is_prefill: bool):</span>
+<span class="source-line" id="L197"><a class="line-no" href="#L197">197</a>        if is_prefill or self.enforce_eager or input_ids.size(0) &gt; 512:</span>
+<span class="source-line" id="L198"><a class="line-no" href="#L198">198</a>            return self.model.compute_logits(self.model(input_ids, positions))</span>
+<span class="source-line" id="L199"><a class="line-no" href="#L199">199</a>        else:</span>
+<span class="source-line" id="L200"><a class="line-no" href="#L200">200</a>            bs = input_ids.size(0)</span>
+<span class="source-line" id="L201"><a class="line-no" href="#L201">201</a>            context = get_context()</span>
+<span class="source-line" id="L202"><a class="line-no" href="#L202">202</a>            graph = self.graphs[next(x for x in self.graph_bs if x &gt;= bs)]</span>
+<span class="source-line" id="L203"><a class="line-no" href="#L203">203</a>            graph_vars = self.graph_vars</span>
+<span class="source-line" id="L204"><a class="line-no" href="#L204">204</a>            graph_vars[&quot;input_ids&quot;][:bs] = input_ids</span>
+<span class="source-line" id="L205"><a class="line-no" href="#L205">205</a>            graph_vars[&quot;positions&quot;][:bs] = positions</span>
+<span class="source-line" id="L206"><a class="line-no" href="#L206">206</a>            graph_vars[&quot;slot_mapping&quot;].fill_(-1)</span>
+<span class="source-line" id="L207"><a class="line-no" href="#L207">207</a>            graph_vars[&quot;slot_mapping&quot;][:bs] = context.slot_mapping</span>
+<span class="source-line" id="L208"><a class="line-no" href="#L208">208</a>            graph_vars[&quot;context_lens&quot;].zero_()</span>
+<span class="source-line" id="L209"><a class="line-no" href="#L209">209</a>            graph_vars[&quot;context_lens&quot;][:bs] = context.context_lens</span>
+<span class="source-line" id="L210"><a class="line-no" href="#L210">210</a>            graph_vars[&quot;block_tables&quot;][:bs, :context.block_tables.size(1)] = context.block_tables</span>
+<span class="source-line" id="L211"><a class="line-no" href="#L211">211</a>            graph.replay()</span>
+<span class="source-line" id="L212"><a class="line-no" href="#L212">212</a>            return self.model.compute_logits(graph_vars[&quot;outputs&quot;][:bs])</span>
+<span class="source-line" id="L213"><a class="line-no" href="#L213">213</a></span>
+<span class="source-line" id="L214"><a class="line-no" href="#L214">214</a>    def run(self, seqs: list[Sequence], is_prefill: bool) -&gt; list[int]:</span>
+<span class="source-line" id="L215"><a class="line-no" href="#L215">215</a>        input_ids, positions = self.prepare_prefill(seqs) if is_prefill else self.prepare_decode(seqs)</span>
+<span class="source-line" id="L216"><a class="line-no" href="#L216">216</a>        temperatures = self.prepare_sample(seqs) if self.rank == 0 else None</span>
+<span class="source-line" id="L217"><a class="line-no" href="#L217">217</a>        logits = self.run_model(input_ids, positions, is_prefill)</span>
+<span class="source-line" id="L218"><a class="line-no" href="#L218">218</a>        token_ids = self.sampler(logits, temperatures).tolist() if self.rank == 0 else None</span>
+<span class="source-line" id="L219"><a class="line-no" href="#L219">219</a>        reset_context()</span>
+<span class="source-line" id="L220"><a class="line-no" href="#L220">220</a>        return token_ids</span></code></pre></main></body></html>

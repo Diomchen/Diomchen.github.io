@@ -1,0 +1,105 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>deepinfer-commit</title><link rel="stylesheet" href="../../assets/course.css?v=2"><link rel="stylesheet" href="../../assets/deep-dive.css"></head><body><a class="skip-link" href="#main">跳到正文</a><main class="page" id="main"><nav class="lesson-nav"><a href="../source-map.html">源码索引</a><a href="../../index.html">课程首页</a></nav><h1>deepinfer-commit</h1><p class="source-note">deepinfer/csrc/engine/scheduler.hpp · a679bb8 · L899–1003 · <a href="https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/csrc/engine/scheduler.hpp#L899-L1003">固定 commit 上游</a></p><p>这是固定版本源码的只读摘录；可在线阅读，也可通过上游链接查看原文件。</p><aside class="aside"><strong>deepinfer · Apache-2.0</strong><p>DeepInfer project and its contributors。本页为固定提交源码选段，课程添加HTML格式化与行号。<a href="../attribution.html">归属说明</a> · <a href="../../third-party/deepinfer/LICENSE">原许可证</a></p></aside><pre class="source-code"><code><span class="source-line" id="L899"><a class="line-no" href="#L899">899</a>        for (ssize_t i = 0; i &lt; num_output_tokens; i++) {</span>
+<span class="source-line" id="L900"><a class="line-no" href="#L900">900</a>            auto &amp;seq = *scheduler_outputs.scheduled_seqs[i];</span>
+<span class="source-line" id="L901"><a class="line-no" href="#L901">901</a>            auto &amp;seq_ptr = scheduler_outputs.scheduled_seqs[i];</span>
+<span class="source-line" id="L902"><a class="line-no" href="#L902">902</a></span>
+<span class="source-line" id="L903"><a class="line-no" href="#L903">903</a>            seq.schedule.finish_inflight_step();</span>
+<span class="source-line" id="L904"><a class="line-no" href="#L904">904</a></span>
+<span class="source-line" id="L905"><a class="line-no" href="#L905">905</a>            // seq is already aborted</span>
+<span class="source-line" id="L906"><a class="line-no" href="#L906">906</a>            if (seq.is_finished()) {</span>
+<span class="source-line" id="L907"><a class="line-no" href="#L907">907</a>                release_mtp_info_slot(seq);</span>
+<span class="source-line" id="L908"><a class="line-no" href="#L908">908</a>                pushed_tokens_before_finish.push_back(0);</span>
+<span class="source-line" id="L909"><a class="line-no" href="#L909">909</a>                if (scheduler_outputs.prompt_run) {</span>
+<span class="source-line" id="L910"><a class="line-no" href="#L910">910</a>                    running.push_back(seq_ptr);</span>
+<span class="source-line" id="L911"><a class="line-no" href="#L911">911</a>                }</span>
+<span class="source-line" id="L912"><a class="line-no" href="#L912">912</a>                if (has_accepted_tokens)</span>
+<span class="source-line" id="L913"><a class="line-no" href="#L913">913</a>                    flat_offset += scheduler_outputs.seqlens_q[i];</span>
+<span class="source-line" id="L914"><a class="line-no" href="#L914">914</a>                continue;</span>
+<span class="source-line" id="L915"><a class="line-no" href="#L915">915</a>            }</span>
+<span class="source-line" id="L916"><a class="line-no" href="#L916">916</a></span>
+<span class="source-line" id="L917"><a class="line-no" href="#L917">917</a>            // ZOS 异步：本步尚在途时就被 _preempt 抢占重算的 seq（只在 decode 步出现——prompt 步的</span>
+<span class="source-line" id="L918"><a class="line-no" href="#L918">918</a>            // 在途 seq 不在 running 里，不会成为抢占目标）。_preempt 已复位其计数并放回 waiting 队头，</span>
+<span class="source-line" id="L919"><a class="line-no" href="#L919">919</a>            // 本步输出作废：跳过全部记账，避免重复入队与 cache.num_tokens 的错误推进。</span>
+<span class="source-line" id="L920"><a class="line-no" href="#L920">920</a>            if (!scheduler_outputs.prompt_run &amp;&amp; seq.schedule.status == SequenceStatus::WAITING) {</span>
+<span class="source-line" id="L921"><a class="line-no" href="#L921">921</a>                pushed_tokens_before_finish.push_back(0);</span>
+<span class="source-line" id="L922"><a class="line-no" href="#L922">922</a>                if (has_accepted_tokens)</span>
+<span class="source-line" id="L923"><a class="line-no" href="#L923">923</a>                    flat_offset += scheduler_outputs.seqlens_q[i];</span>
+<span class="source-line" id="L924"><a class="line-no" href="#L924">924</a>                continue;</span>
+<span class="source-line" id="L925"><a class="line-no" href="#L925">925</a>            }</span>
+<span class="source-line" id="L926"><a class="line-no" href="#L926">926</a></span>
+<span class="source-line" id="L927"><a class="line-no" href="#L927">927</a>            seq.cache.advance_optimistically(scheduler_outputs.seqlens_q[i]);</span>
+<span class="source-line" id="L928"><a class="line-no" href="#L928">928</a>            if (so_status_bool)</span>
+<span class="source-line" id="L929"><a class="line-no" href="#L929">929</a>                seq.structured_output.status = so_status[i].cast&lt;int&gt;();</span>
+<span class="source-line" id="L930"><a class="line-no" href="#L930">930</a></span>
+<span class="source-line" id="L931"><a class="line-no" href="#L931">931</a>            // 乐观推进后 cache.num_tokens 的不变式（input.tokens 只含已提交 token，不含 draft，契约见其声明处；</span>
+<span class="source-line" id="L932"><a class="line-no" href="#L932">932</a>            // 在途被抢占的 seq 已在上面跳过）：</span>
+<span class="source-line" id="L933"><a class="line-no" href="#L933">933</a>            //   prompt 步：seqlen_q 只覆盖 prompt 本身，推进后 &lt;= len，等于 len 说明本 seq 的 prefill 已完成；</span>
+<span class="source-line" id="L934"><a class="line-no" href="#L934">934</a>            //   decode 步：seqlen_q = 1 + 参与验证的 draft 数，推进后其值落在 [len, len + nextn] 内，</span>
+<span class="source-line" id="L935"><a class="line-no" href="#L935">935</a>            //              多算的部分随后按实际接受的 token 数（token_cnt）回填修正。</span>
+<span class="source-line" id="L936"><a class="line-no" href="#L936">936</a>            TORCH_CHECK(seq.cache.num_tokens &lt;= seq.input.tokens.get_len() + seq.get_nextn_len());</span>
+<span class="source-line" id="L937"><a class="line-no" href="#L937">937</a>            bool prefill_finish_or_is_decode = (seq.cache.num_tokens &gt;= seq.input.tokens.get_len());</span>
+<span class="source-line" id="L938"><a class="line-no" href="#L938">938</a>            TORCH_CHECK(scheduler_outputs.prompt_run || prefill_finish_or_is_decode, &quot;decode 步推进后必然 &gt;= len，不应该：&quot;,</span>
+<span class="source-line" id="L939"><a class="line-no" href="#L939">939</a>                seq.cache.num_tokens, &quot; &lt; &quot;, seq.input.tokens.get_len());</span>
+<span class="source-line" id="L940"><a class="line-no" href="#L940">940</a>            if (prefill_finish_or_is_decode) {</span>
+<span class="source-line" id="L941"><a class="line-no" href="#L941">941</a>                if (engine_type == EngineType::NORMAL) { /// prefill_engine won&#x27;t change status</span>
+<span class="source-line" id="L942"><a class="line-no" href="#L942">942</a>                                                         /// because it will be transferred to</span>
+<span class="source-line" id="L943"><a class="line-no" href="#L943">943</a>                                                         /// complete_engine</span>
+<span class="source-line" id="L944"><a class="line-no" href="#L944">944</a>                    TORCH_CHECK(seq_ptr-&gt;schedule.status == SequenceStatus::RUNNING,</span>
+<span class="source-line" id="L945"><a class="line-no" href="#L945">945</a>                        SPRINT_VARS(&quot;`seq_ptr-&gt;schedule.status` should be RUNNING. &quot;</span>
+<span class="source-line" id="L946"><a class="line-no" href="#L946">946</a>                                    &quot;`seq_ptr-&gt;schedule.status` is updated in `_allocate`. &quot;</span>
+<span class="source-line" id="L947"><a class="line-no" href="#L947">947</a>                                    &quot;Check if the `allocate` is called at the end of &quot;</span>
+<span class="source-line" id="L948"><a class="line-no" href="#L948">948</a>                                    &quot;the prefill phase. Got&quot;,</span>
+<span class="source-line" id="L949"><a class="line-no" href="#L949">949</a>                            int(seq_ptr-&gt;schedule.status)));</span>
+<span class="source-line" id="L950"><a class="line-no" href="#L950">950</a>                }</span>
+<span class="source-line" id="L951"><a class="line-no" href="#L951">951</a>                if (scheduler_outputs.prompt_run) {</span>
+<span class="source-line" id="L952"><a class="line-no" href="#L952">952</a>                    running.push_back(seq_ptr);</span>
+<span class="source-line" id="L953"><a class="line-no" href="#L953">953</a>                }</span>
+<span class="source-line" id="L954"><a class="line-no" href="#L954">954</a></span>
+<span class="source-line" id="L955"><a class="line-no" href="#L955">955</a>                // 提取本步验证通过的 draft tokens（flat 布局见 accepted_token_ids 参数注释）</span>
+<span class="source-line" id="L956"><a class="line-no" href="#L956">956</a>                accepted_token_ids_vec.clear();</span>
+<span class="source-line" id="L957"><a class="line-no" href="#L957">957</a>                if (has_accepted_tokens) {</span>
+<span class="source-line" id="L958"><a class="line-no" href="#L958">958</a>                    int num_draft_i = scheduler_outputs.seqlens_q[i] - 1;</span>
+<span class="source-line" id="L959"><a class="line-no" href="#L959">959</a>                    for (int j = 0; j &lt; num_draft_i; j++) {</span>
+<span class="source-line" id="L960"><a class="line-no" href="#L960">960</a>                        int token_id = accepted_token_ids_ptr[flat_offset + j];</span>
+<span class="source-line" id="L961"><a class="line-no" href="#L961">961</a>                        if (token_id != -1) {</span>
+<span class="source-line" id="L962"><a class="line-no" href="#L962">962</a>                            accepted_token_ids_vec.push_back(token_id);</span>
+<span class="source-line" id="L963"><a class="line-no" href="#L963">963</a>                        } else</span>
+<span class="source-line" id="L964"><a class="line-no" href="#L964">964</a>                            break;</span>
+<span class="source-line" id="L965"><a class="line-no" href="#L965">965</a>                    }</span>
+<span class="source-line" id="L966"><a class="line-no" href="#L966">966</a>                }</span>
+<span class="source-line" id="L967"><a class="line-no" href="#L967">967</a>                seq.mtp.accepted_tokens = accepted_token_ids_vec;</span>
+<span class="source-line" id="L968"><a class="line-no" href="#L968">968</a></span>
+<span class="source-line" id="L969"><a class="line-no" href="#L969">969</a>                token_ids = accepted_token_ids_vec;</span>
+<span class="source-line" id="L970"><a class="line-no" href="#L970">970</a>                seq.mtp.last_output_token = output_token_ids_data[i];</span>
+<span class="source-line" id="L971"><a class="line-no" href="#L971">971</a>                token_ids.push_back(seq.mtp.last_output_token);</span>
+<span class="source-line" id="L972"><a class="line-no" href="#L972">972</a></span>
+<span class="source-line" id="L973"><a class="line-no" href="#L973">973</a>                int token_cnt = 0;</span>
+<span class="source-line" id="L974"><a class="line-no" href="#L974">974</a>                // 判死看账本 structured_output.status 而非当步上报：sampler 对批内无活跃 SO 的步返回 None，</span>
+<span class="source-line" id="L975"><a class="line-no" href="#L975">975</a>                // 只认上报会让账本已是 -1 的 seq（如 PE 判死后迁到 CE 的副本）无约束自由生成</span>
+<span class="source-line" id="L976"><a class="line-no" href="#L976">976</a>                if (seq.structured_output.status == -1) {</span>
+<span class="source-line" id="L977"><a class="line-no" href="#L977">977</a>                    seq.schedule.status = SequenceStatus::FINISHED_SO_FAILED;</span>
+<span class="source-line" id="L978"><a class="line-no" href="#L978">978</a>                    seq.append_token_id(0);</span>
+<span class="source-line" id="L979"><a class="line-no" href="#L979">979</a>                    seq.append_compressed_token_id(0);</span>
+<span class="source-line" id="L980"><a class="line-no" href="#L980">980</a>                    token_cnt++;</span>
+<span class="source-line" id="L981"><a class="line-no" href="#L981">981</a>                } else {</span>
+<span class="source-line" id="L982"><a class="line-no" href="#L982">982</a>                    for (auto token_id : token_ids) {</span>
+<span class="source-line" id="L983"><a class="line-no" href="#L983">983</a>                        seq.append_token_id(token_id);</span>
+<span class="source-line" id="L984"><a class="line-no" href="#L984">984</a>                        seq.append_compressed_token_id(map_engram(token_id));</span>
+<span class="source-line" id="L985"><a class="line-no" href="#L985">985</a>                        token_cnt++;</span>
+<span class="source-line" id="L986"><a class="line-no" href="#L986">986</a>                        _check_stop(seq);</span>
+<span class="source-line" id="L987"><a class="line-no" href="#L987">987</a>                        if (seq.is_finished()) {</span>
+<span class="source-line" id="L988"><a class="line-no" href="#L988">988</a>                            break;</span>
+<span class="source-line" id="L989"><a class="line-no" href="#L989">989</a>                        }</span>
+<span class="source-line" id="L990"><a class="line-no" href="#L990">990</a>                    }</span>
+<span class="source-line" id="L991"><a class="line-no" href="#L991">991</a>                }</span>
+<span class="source-line" id="L992"><a class="line-no" href="#L992">992</a>                if (seq.is_finished()) {</span>
+<span class="source-line" id="L993"><a class="line-no" href="#L993">993</a>                    release_mtp_info_slot(seq);</span>
+<span class="source-line" id="L994"><a class="line-no" href="#L994">994</a>                }</span>
+<span class="source-line" id="L995"><a class="line-no" href="#L995">995</a>                pushed_tokens_before_finish.push_back(token_cnt);</span>
+<span class="source-line" id="L996"><a class="line-no" href="#L996">996</a></span>
+<span class="source-line" id="L997"><a class="line-no" href="#L997">997</a>                if (!scheduler_outputs.prompt_run) {</span>
+<span class="source-line" id="L998"><a class="line-no" href="#L998">998</a>                    // decode：把 cache.num_tokens 从乐观推进值回填为实际接受数（未被接受的 draft 不占 KV）</span>
+<span class="source-line" id="L999"><a class="line-no" href="#L999">999</a>                    seq.cache.commit_processed_tokens(token_cnt);</span>
+<span class="source-line" id="L1000"><a class="line-no" href="#L1000">1000</a>                }</span>
+<span class="source-line" id="L1001"><a class="line-no" href="#L1001">1001</a>                TORCH_CHECK(seq.cache.num_tokens &lt;= seq.input.tokens.get_len(),</span>
+<span class="source-line" id="L1002"><a class="line-no" href="#L1002">1002</a>                    &quot;assert seq.cache.num_tokens &lt;= seq.input.tokens.get_len(), seq.cache.num_tokens:&quot;, seq.cache.num_tokens,</span>
+<span class="source-line" id="L1003"><a class="line-no" href="#L1003">1003</a>                    &quot; seq.input.tokens.get_len():&quot;, seq.input.tokens.get_len());</span></code></pre></main></body></html>

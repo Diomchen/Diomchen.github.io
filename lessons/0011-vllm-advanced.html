@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>11 · vLLM 高级特性</title>
+<link rel="stylesheet" href="../assets/course.css?v=2">
+</head>
+<body>
+<div class="page">
+
+<nav class="lesson-nav">
+  <a href="0010-vllm-execution-layer.html">← 10 执行层</a>
+  <a class="home" href="../index.html">课程索引</a>
+  <a class="right" href="0012-deepinfer-overview.html">12 DeepInfer 总览 →</a>
+</nav>
+
+<header>
+  <p class="kicker">课程 11 · 进阶机制</p>
+  <h1>同一套调度，五种玩法</h1>
+  <p class="dek">投机解码、PD 分离、结构化输出、异步调度、睡眠唤醒——这些看起来互不相干的功能，在 vLLM 里全部落在同一个 <code>SchedulerOutput</code> 上。这一课讲它们怎么被「塞进」那套 token 预算模型。</p>
+  <p class="meta">
+    <span>约 60 分钟</span>
+    <span>源码：<code>v1/core/sched/scheduler.py</code> · <code>v1/core/sched/output.py</code> · <code>v1/distributed/kv_transfer/</code></span>
+    <span>前置：09、10</span>
+  </p>
+</header><div class="aside"><span class="label">2026-11-08 源码校正</span><p>本页已按本地固定commit修正相关描述。<a href="../reference/framework-map.html">三框架对照</a> · <a href="../reference/source-map.html">带行号的离线证据</a> · <a href="../docs/research/framework-deep-dive-2026-11-08.md">核查与勘误详情</a>。</p></div>
+
+<h2><span class="num">1</span>投机解码：让预算多算几个 token</h2>
+
+<p>投机解码的做法是：先用一个小模型（或 n-gram、EAGLE head）猜出接下来 5 个 token，再用大模型<strong>一次前向</strong>验证这 5 个，能接受几个就接受几个。关键在于：<strong>这 5 个 draft token 也要占 KV 块</strong>。</p>
+
+<pre><code><span class="file">scheduler.py · L727–729</span>spec = self.vllm_config.speculative_config
+draft_slots = spec.max_num_new_slots_for_drafting if spec is not None else 0
+input_budget = self.scheduler_config.max_num_batched_tokens
+...
+num_new_tokens = min(num_new_tokens, token_budget, input_budget - draft_slots)</code></pre>
+
+<p>注意 <code>input_budget - draft_slots</code>：正常请求的输入预算要<strong>先扣掉</strong>留给 draft 的槽位。否则一个长 prompt 会把预算吃光，投机就没地方放了。</p>
+
+<pre><code><span class="file">v1/core/sched/output.py · L261–264</span>scheduled_spec_decode_tokens: dict[str, list[int]]
+<span class="comment"># req_id -> spec_token_ids（没有 draft 的请求不会出现在字典里）</span></code></pre>
+
+<p>num_scheduled_tokens是这条请求本轮主模型输入总数，<strong>已经包含本轮draft验证位置</strong>；scheduled_spec_decode_tokens标识其中哪些为draft。例如上轮最后token加3个draft，总数就是4。返回后按实际接受情况修正computed账本。拒绝采样的理想分布等价也不同于跨batch逐位确定性；详见<a href="0027-vllm-token-ledger.html">27课算例</a>。</p>
+
+<div class="key">
+  <span class="label">为什么它能塞进同一套调度</span>
+  <p>因为 vLLM 的调度单位是<strong>「token」而不是「阶段」</strong>。投机解码只是让某条请求的 <code>num_tokens_with_spec</code> 比它的实际 token 多几个——第 08 课那句注释说的「general enough」就是这个意思。</p>
+</div>
+
+<h2><span class="num">2</span>PD 分离：KV 从别的机器来</h2>
+
+<p>Prefill 是算力密集，Decode 是带宽密集。把两者拆到不同机器上，各自用最合适的硬件配比，这就是 <strong>Prefill-Decode Disaggregation</strong>。</p>
+
+<p>代价是：decode 节点需要的 KV，必须由 prefill 节点<strong>传过来</strong>。vLLM 用 <code>kv_transfer</code> 模块 + KV Connector 抽象来做这件事[<a href="https://github.com/vllm-project/vllm/tree/ef9339e/vllm/v1/distributed/kv_transfer">v1/distributed/kv_transfer</a>]。</p>
+
+<pre><code><span class="file">kv_cache_manager.py · L379–395</span>num_external_computed_tokens=0,     <span class="cm"># 从 connector 拿到的 KV 对应的 token 数</span>
+delay_cache_blocks=False,           <span class="cm"># 传输还没完成，先占块但不登记前缀缓存</span></code></pre>
+
+<p><code>delay_cache_blocks</code> 是最能说明问题的一个参数：块已经分配了，但里面的数据还在网络上飞。这时候如果把它登记进前缀缓存，别的请求命中就会读到垃圾——所以必须<strong>延迟登记</strong>，等传输完成再标记。</p>
+
+<p>调度器还要处理「传输失败」「对端超时」，这就是为什么 <code>kv_connector_meta</code> 会出现在 <code>SchedulerOutput</code> 里、并且每个 step 都可能带 <code>has_sync_kv_loads</code> 这样的标志。</p>
+
+<h2><span class="num">3</span>结构化输出：掩码在采样前算好</h2>
+
+<pre><code><span class="file">v1/engine/core.py · L720–729</span>scheduler_output = self.scheduler.schedule(...)
+future = self.model_executor.execute_model(scheduler_output, non_block=True)
+grammar_output = self.scheduler.get_grammar_bitmask(scheduler_output)   <span class="cm"># 与 GPU 并行</span>
+...
+model_output = self._wait_for_output(future)
+if model_output is None:
+    model_output = self.model_executor.sample_tokens(grammar_output)</code></pre>
+
+<p>位置很讲究：<strong>bitmask 计算被放在「等 GPU」的窗口里做</strong>。语法解析（正则 / JSON Schema / EBNF）是纯 CPU 的字符串状态机，正好可以蹭 GPU 的延迟。</p>
+
+<p>这也是第 08 课说「把 <code>sample_tokens</code> 拆出来」的原因之一：只有在采样这一步才需要 bitmask，采样又必须在拿到 GPU 输出之后。拆开之后，两者可以并行。</p>
+
+<h2><span class="num">4</span>异步调度：让 CPU 不要等 GPU</h2>
+
+<p>普通流程是一问一答：调度 → 跑模型 → 等结果 → 再调度。异步调度把「等结果」这段时间利用起来：<strong>在 GPU 还在跑这一步的时候，先把下一步的调度做完</strong>。</p>
+
+<p>难点在于状态一致性：下一步调度时，上一步的采样结果还没回来，调度器并不知道某条请求会不会结束。vLLM 的解法是引入 <code>num_output_placeholders</code>——先假设这些 token 会产生，等真实结果回来再校正。抢占时则要标记 in-flight 输出为 <code>stale</code>。</p>
+
+<p>收益很直接：decode 一步 20 ms 时，CPU 侧的调度、tokenize、输出处理可以完全藏进这 20 ms 里。</p>
+
+<h2><span class="num">5</span>睡眠与唤醒：给 RL 训练让路</h2>
+
+<pre><code><span class="file">v1/engine/llm_engine.py · L426–449</span>def sleep(self, level: int = 1, mode: PauseMode = "abort"): ...
+def release_kv_cache_memory(self): ...
+def wake_up(self, tags: list[str] | None = None) -&gt; bool: ...</code></pre>
+
+<p>这是为强化学习训练场景设计的：训练需要显卡时，推理引擎<strong>把 KV cache 和权重释放掉</strong>，把显存让出来；训练完再唤醒并重新加载。没有这一层，训练和推理只能分时复用两套机器。</p>
+
+<h2><span class="num">6</span>一张表看清它们落在哪</h2>
+
+<table>
+  <thead><tr><th>特性</th><th>落在调度的哪里</th><th>落在执行的哪里</th></tr></thead>
+  <tbody>
+    <tr><td>投机解码</td><td><code>draft_slots</code>、<code>scheduled_spec_decode_tokens</code></td><td>验证前向 + 拒绝采样</td></tr>
+    <tr><td>前缀缓存</td><td><code>get_computed_blocks</code></td><td>命中块直接读 KV</td></tr>
+    <tr><td>PD 分离</td><td><code>num_external_computed_tokens</code>、<code>delay_cache_blocks</code></td><td>KV connector 传输</td></tr>
+    <tr><td>结构化输出</td><td><code>get_grammar_bitmask</code></td><td><code>sample_tokens(grammar_output)</code></td></tr>
+    <tr><td>异步调度</td><td><code>num_output_placeholders</code>、stale 标记</td><td>future + batch queue</td></tr>
+    <tr><td>睡眠唤醒</td><td>暂停状态 <code>PauseState</code></td><td>释放 / 重建 KV 与权重</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">7</span>练习 A · 设计题</h2>
+
+<p>假设你要给 nano-vllm 加一个「最简单的投机解码」：用一个 4-gram 查表猜 3 个 token，然后一次前向验证。列出你需要改的<strong>三个</strong>地方，以及每处的关键风险。</p>
+
+<details>
+  <summary>展开：参考思路</summary>
+  <p>① <code>Sequence</code>：增加 <code>spec_token_ids</code>，让 <code>num_tokens</code> 与实际待算 token 数分离（对应 vLLM 的 <code>num_tokens_with_spec</code>）。风险：<code>num_blocks</code>、<code>last_block_num_tokens</code> 全部要按「含 draft」计算，否则块表错位。</p>
+  <p>② <code>prepare_decode</code>：把 <code>input_ids</code> 从 1 个变成 1+k 个，slot_mapping 相应扩展。风险：position 与 context_lens 也要跟着变，否则 RoPE 错位。</p>
+  <p>③ <code>postprocess</code>：接受/拒绝逻辑——逐位置比较 draft 与实际采样结果，截断到第一个拒绝点，把 KV 块按接受长度回收。风险：被拒绝的 token 在 KV cache 里留下的垃圾必须能覆盖写，否则下次会读到。</p>
+</details>
+
+<h2><span class="num">8</span>练习 B · 闭卷测验</h2>
+
+<div class="quiz" data-quiz="vllm-adv"></div>
+
+<h2><span class="num">9</span>面试复述卡</h2>
+
+<p><strong>「投机解码为什么不会改变输出分布？」</strong></p>
+
+<details>
+  <summary>展开：30 秒版本</summary>
+  <p>「因为验证阶段用的是拒绝采样：对每个 draft token，以 <code>min(1, p_target / p_draft)</code> 的概率接受；一旦拒绝，就从修正后的分布 <code>norm(max(0, p_target - p_draft))</code> 里重新采一个。数学上可以证明最终样本的分布严格等于从目标模型采样。所以它只影响速度，不影响质量。」</p>
+</details>
+
+<div class="ask-teacher">
+  <p><strong>可以问</strong>：「PD 分离什么时候值得做？」——需要估算带宽、集群规模、TTFT 目标，我们可以拿你未来的实验数据一起算。</p>
+</div>
+
+<footer class="lesson-footer">
+  <h3>主源与延伸</h3>
+  <ul>
+    <li><strong>主源</strong>：<code>v1/core/sched/output.py</code> 的 <code>SchedulerOutput</code> 全文——它是所有特性的交集。</li>
+    <li>论文：Speculative Decoding（Leviathan et al., 2022）——拒绝采样的正确性证明。</li>
+    <li>术语：<a href="../reference/glossary.html#metrics">Goodput / TTFT</a>。</li>
+    <li>下一课：<strong>12 · DeepInfer 总览</strong>——DeepSeek 自己的推理框架，和 vLLM 是什么关系。</li>
+  </ul>
+</footer>
+
+</div>
+<script src="../assets/quiz.js?v=2"></script>
+<script>
+CourseQuiz.mount('[data-quiz="vllm-adv"]', {
+  questions: [
+    {
+      q: '投机解码的 draft token 在调度里体现为：',
+      options: [
+        '额外的 token 预算槽位',
+        '独立的等待队列',
+        '更小的 block size',
+        '更高的采样温度'
+      ],
+      answer: 0,
+      why: ' `draft_slots` 先从输入预算里扣掉，draft token 记在 `scheduled_spec_decode_tokens` 里随请求下发。'
+    },
+    {
+      q: '`delay_cache_blocks` 的作用是：',
+      options: [
+        'KV 未到时不登记前缀缓存',
+        '延迟释放已完成的块',
+        '推迟整个请求的调度',
+        '把块搬到 CPU 显存'
+      ],
+      answer: 0,
+      why: ' PD 分离时块的物理位置已定但数据还在传输，登记进前缀缓存会让别的请求读到未写完的 KV。'
+    },
+    {
+      q: '结构化输出的 bitmask 放在「等 GPU」的窗口里算，好处是：',
+      options: [
+        '用 CPU 计算填满 GPU 延迟',
+        '减少 GPU 的显存占用',
+        '避免使用拒绝采样',
+        '让采样完全在 GPU 上完成'
+      ],
+      answer: 0,
+      why: ' 语法解析是纯 CPU 工作，正好和 GPU 前向并行，不增加端到端延迟。'
+    },
+    {
+      q: '异步调度最大的难点是：',
+      options: [
+        '下一步调度时上一步结果未回',
+        'GPU 不支持并发 kernel',
+        '分词器无法并行',
+        '块表无法动态更新'
+      ],
+      answer: 0,
+      why: ' 调度器要用 placeholder 假设输出、并在抢占时把 in-flight 结果标记为 stale，才能保证状态一致。'
+    },
+    {
+      q: '`sleep()` / `wake_up()` 主要为哪类场景设计？',
+      options: [
+        '训练与推理分时复用显存',
+        '多租户按量计费',
+        '跨机 KV 传输',
+        '模型热更新'
+      ],
+      answer: 0,
+      why: ' RL 训练需要显卡时，推理引擎释放 KV 与权重把显存让出来，训练完再唤醒重建。'
+    }
+  ]
+});
+</script>
+<script src="../assets/highlight.js?v=2"></script>
+<script src="../assets/lesson-ui.js?v=2"></script>
+</body>
+</html>

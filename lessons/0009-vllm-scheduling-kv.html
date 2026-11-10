@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>09 · vLLM 的调度与 KV 管理</title>
+<link rel="stylesheet" href="../assets/course.css?v=2">
+</head>
+<body>
+<div class="page">
+
+<nav class="lesson-nav">
+  <a href="0008-vllm-v1-architecture.html">← 08 vLLM 架构</a>
+  <a class="home" href="../index.html">课程索引</a>
+  <a class="right" href="0010-vllm-execution-layer.html">10 执行层 →</a>
+</nav>
+
+<header>
+  <p class="kicker">课程 09 · 生产调度</p>
+  <h1>预算、抢占、淘汰</h1>
+  <p class="dek">同一个 <code>schedule()</code>，nano-vllm 用 50 行做到「能跑」，vLLM 用 3800 行做到「在几百张卡上跑不崩」。这一课只讲它多出来的三件事：token 预算、抢占策略、块淘汰。</p>
+  <p class="meta">
+    <span>约 60 分钟</span>
+    <span>源码：<code>v1/core/sched/scheduler.py</code> · <code>v1/core/kv_cache_manager.py</code> · <code>v1/core/block_pool.py</code></span>
+    <span>前置：08</span>
+  </p>
+</header><div class="aside"><span class="label">2026-11-08 源码校正</span><p>本页已按本地固定commit修正相关描述。<a href="../reference/framework-map.html">三框架对照</a> · <a href="../reference/source-map.html">带行号的离线证据</a> · <a href="../docs/research/framework-deep-dive-2026-11-08.md">核查与勘误详情</a>。</p></div>
+
+<h2><span class="num">1</span>预算：三个数字同时约束</h2>
+
+<pre><code><span class="file">scheduler.py · L726–729</span>token_budget = self.max_num_scheduled_tokens
+spec = self.vllm_config.speculative_config
+draft_slots = spec.max_num_new_slots_for_drafting if spec is not None else 0
+input_budget = self.scheduler_config.max_num_batched_tokens</code></pre>
+
+<p>nano-vllm 只有一个 <code>max_num_batched_tokens</code>。vLLM 有三层：</p>
+
+<table>
+  <thead><tr><th>预算</th><th>约束什么</th><th>为什么单独存在</th></tr></thead>
+  <tbody>
+    <tr><td><code>max_num_scheduled_tokens</code></td><td>这轮总共算多少 token</td><td>硬上限，和显存/延迟目标挂钩</td></tr>
+    <tr><td><code>max_num_batched_tokens</code></td><td>这轮「输入」最多多少 token</td><td>每请求还需扣除drafting的额外预留</td></tr>
+    <tr><td><code>draft_slots</code></td><td>每请求drafting预留输入位</td><td>不能等同本轮已包含的draft验证数或KV块数</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">2</span>顺序反了：vLLM 先 running</h2>
+
+<p>nano-vllm 是「先尽量 prefill，再 decode」。vLLM 反过来[<a href="https://github.com/vllm-project/vllm/blob/ef9339e/vllm/v1/core/sched/scheduler.py#L800-L802">scheduler.py L800–802</a>]：</p>
+
+<pre><code><span class="comment"># First, schedule the RUNNING requests.</span>
+req_index = 0
+while req_index &lt; len(self.running) and token_budget &gt; 0:
+    ...</code></pre>
+
+<p>running优先让已经开始处理的请求继续推进；running中也可能有未完成的chunked prefill，不能全部等同decode。具体公平性、延迟与抢占率仍受策略和负载影响。</p>
+
+<p>nano-vllm 的顺序在单机小模型上问题不大（一轮很快），但在生产里会造成 <strong>decode 饥饿</strong>：源源不断的新请求让 running 里的序列永远排不上队。vLLM 的取舍是：<strong>先保证在跑的请求向前推进，再用剩余预算接纳新请求</strong>。</p>
+
+<div class="key">
+  <span class="label">面试点</span>
+  <p>先running保护已有进度并用剩余预算接纳waiting；这是一种策略选择，不能仅由顺序推导“抢占率最低”的性能结论。</p>
+</div>
+
+<h2><span class="num">3</span>抢占：谁当牺牲品</h2>
+
+<pre><code><span class="file">scheduler.py · L938–945</span>if self.policy == SchedulingPolicy.PRIORITY:
+    preempted_req = max(self.running, key=lambda r: (r.priority, r.arrival_time))
+else:
+    preempted_req = self.running[-1]      <span class="cm"># 默认：最后进来的</span></code></pre>
+
+<p>默认策略与 nano-vllm 完全一致——<code>running[-1]</code>，最新的先牺牲。但 vLLM 多了两件事：</p>
+
+<ol>
+  <li><strong>优先级策略</strong>：<code>max(priority, arrival_time)</code> 选「优先级最低 + 最晚到」的那条。多租户场景下，可据业务策略赋不同优先级，但不能保证绝不抢占。</li>
+  <li><strong>抢占后的清理</strong>[<a href="https://github.com/vllm-project/vllm/blob/ef9339e/vllm/v1/core/sched/scheduler.py#L1841">L1841</a>]：<code>num_computed_tokens = 0</code>、清空 <code>spec_token_ids</code>、标记 in-flight 输出为 stale、<code>num_preemptions += 1</code>、把请求 <strong>prepend 回 waiting 队首</strong>。</li>
+</ol>
+
+<p>和 nano-vllm 的 <code>preempt()</code> 对照，你会发现连「插回队首」都一样——不同的是 vLLM 要处理异步调度下「已经发出去但还没回来的 token」，所以有 <code>drop_stale_output</code> 这一层。</p>
+
+<h2><span class="num">4</span>前缀缓存：哈希在请求创建时就算好了</h2>
+
+<p>nano-vllm 在 <code>hash_blocks()</code> 里边算边登记；vLLM 反过来了——<strong><code>Request</code> 一创建就计算好 <code>block_hashes</code></strong>[<a href="https://github.com/vllm-project/vllm/blob/ef9339e/vllm/v1/request.py#L235-L240">request.py L235–240</a>]，每追加 token 就增量更新。</p>
+
+<pre><code><span class="file">kv_cache_manager.py · L296–307</span><span class="comment"># 全部命中也要重算最后一个 token 才能拿 logits</span>
+max_cache_hit_length = request.get_max_cache_hit_length(max_cache_hit_length)
+computed_blocks, num_new_computed_tokens, num_uncached = (
+    self.coordinator.find_longest_cache_hit(request.block_hashes, max_cache_hit_length)
+)</code></pre>
+
+<p>常规生成需要重新计算最后位置以取得hidden/logits，因此最大前缀命中长度要留出该位置；完整块对齐可能导致重算整个最后块，而不只是一个token。例如B=16、prompt=32时实际命中16，另16需计算。</p>
+
+<p>如果没有这一行，一个「完全命中」的请求会拿不到 logits——这是实现前缀缓存时最经典的坑。</p>
+
+<h3>块的淘汰：双向链表而不是 deque</h3>
+
+<pre><code><span class="file">kv_cache_utils.py · L261–273</span>class FreeKVCacheBlockQueue:
+    """... doubly linked list of free blocks ...
+    to support removing a block in the middle of the queue in O(1) time.
+    ...
+    1. The least recent used block is at the front (LRU)."""</code></pre>
+
+<p>nano-vllm的deque也能remove中间元素，但这是O(n)查找；vLLM的侵入式双向链表借已知节点可O(1)摘除。复杂度差别不是“deque完全不能移除中间元素”。</p>
+
+<p>cached块的常规行为可用LRU理解，但无hash块优先放free队首，evict_first等路径可调整顺序。ref_cnt=0的块仍可能保有可命中的hash和KV。完整生命周期见<a href="0028-vllm-prefix-block-pool.html">28课</a>。</p>
+
+<h2><span class="num">5</span><code>allocate_slots</code>：一个函数塞进了所有场景</h2>
+
+<pre><code><span class="file">kv_cache_manager.py · L379–395</span>def allocate_slots(
+    self, request, num_new_tokens,
+    num_new_computed_tokens=0,          <span class="cm"># 刚命中的前缀 token 数</span>
+    new_computed_blocks=None,
+    num_lookahead_tokens=0,             <span class="cm"># 投机解码要预留的 token</span>
+    num_external_computed_tokens=0,     <span class="cm"># KV connector 从别处搬来的</span>
+    delay_cache_blocks=False,           <span class="cm"># PD 分离：块先占、稍后再写</span>
+    full_sequence_must_fit=False,       <span class="cm"># 准入控制：当前已知序列需可容纳</span>
+    reserved_blocks=0,                  <span class="cm"># 给在飞序列留的余量</span>
+    ...):</code></pre>
+
+<p>nano-vllm 的 <code>allocate(seq, num_cached_blocks)</code> 只有两个参数。vLLM 的十几个参数，每一个都对应一种<strong>真实场景</strong>：</p>
+
+<table>
+  <thead><tr><th>参数</th><th>场景</th></tr></thead>
+  <tbody>
+    <tr><td><code>num_lookahead_tokens</code></td><td>投机解码：draft token 的 KV 也要地方放</td></tr>
+    <tr><td><code>num_external_computed_tokens</code></td><td>PD 分离 / KV 复用：KV 从别的节点传过来</td></tr>
+    <tr><td><code>delay_cache_blocks</code></td><td>KV 还在传输中，块先占住但不能登记进前缀缓存</td></tr>
+    <tr><td><code>full_sequence_must_fit</code></td><td>准入控制：chunked prefill 只看第一块可能会超卖，检查当前已知序列的容量，不保证未知未来输出</td></tr>
+    <tr><td><code>reserved_blocks</code></td><td>给已经 in-flight 的序列留安全余量，避免它们被饿死</td></tr>
+  </tbody>
+</table>
+
+<p>full_sequence_must_fit检查当前已知request.num_tokens所需容量；它不会保证全部未知未来输出也一定装下。块分配还受lookahead、group、reserved与watermark等约束。</p>
+
+<h2><span class="num">6</span>KV cache group：一个模型多种 KV</h2>
+
+<p>nano-vllm 假设所有层都是标准注意力，KV 形状统一。但现代模型不是：</p>
+
+<ul>
+  <li><strong>滑动窗口注意力</strong>（SWA）：只保留最近 N 个 token 的 KV。</li>
+  <li><strong>Mamba / 状态空间模型</strong>：没有 KV cache，只有固定大小的状态。</li>
+  <li><strong>混合架构</strong>：一部分层用全注意力，一部分用 SWA。</li>
+</ul>
+
+<p>vLLM 用 <strong>KV cache group</strong> 把它们分开管理：每个 group 有自己的块大小和分配策略，哈希键是 <code>(block_hash, group_id)</code> 的组合[<a href="https://github.com/vllm-project/vllm/blob/ef9339e/vllm/v1/core/block_pool.py#L175-L201">block_pool.py L175–201</a>]。</p>
+
+<pre><code>def get_cached_block(self, block_hash, kv_cache_group_ids):
+    for group_id in kv_cache_group_ids:
+        block = self.cached_block_hash_to_block.get_one_block(
+            make_block_hash_with_group_id(block_hash, group_id))
+        if not block:
+            return None          <span class="cm"># 任何一个 group 没命中，整体就算没命中</span></code></pre>
+
+<p>这解释了为什么 <code>get_computed_blocks</code> 会返回三个值——命中前缀、命中 token 数、以及<strong>某个 group 落后时的接缝位置</strong>（<code>shared_prefix_boundary</code>），后者用于保证跨请求复用不会把 Mamba 状态截断在错误的位置。</p>
+
+<h2><span class="num">7</span>和 nano-vllm 的对照表</h2>
+
+<table>
+  <thead><tr><th>问题</th><th>nano-vllm</th><th>vLLM v1</th></tr></thead>
+  <tbody>
+    <tr><td>一轮跑什么</td><td>整轮 prefill 或整轮 decode</td><td>按token预算可混合，保留特殊分支</td></tr>
+    <tr><td>先调度谁</td><td>waiting 优先</td><td>running 优先</td></tr>
+    <tr><td>抢占策略</td><td>固定 LIFO</td><td>LIFO 或优先级</td></tr>
+    <tr><td>前缀哈希</td><td>postprocess 时增量登记</td><td>Request 创建时算好，块池统一管理</td></tr>
+    <tr><td>空闲块结构</td><td>deque（FIFO）</td><td>双向链表（LRU，O(1) 中间摘除）</td></tr>
+    <tr><td>KV 形状</td><td>单一</td><td>多 group（SWA / Mamba / 混合）</td></tr>
+    <tr><td>准入控制</td><td>prefill先分配当前全部块</td><td>可选检查当前已知序列</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">8</span>练习 A · 算一次超卖</h2>
+
+<p>块大小 16，显存剩 100 个块。<code>max_num_batched_tokens = 8192</code>。现在涌入 40 条请求，每条 prompt 长 2048 token。如果只用「第一个 chunk 能装下就接」的准入策略，会发生什么？</p>
+
+<details>
+  <summary>展开：答案</summary>
+  <p>每条请求至少需要 <code>2048/16 = 128</code> 个块才能跑完，但只剩 100 个块——<strong>一条都跑不完</strong>。</p>
+  <p>如果按 chunk 准入（只检查第一块），调度器可能一次接进 40 条，每条先分 1–2 个块开始 prefill；跑到一半块耗尽，只能不停抢占，吞吐崩到接近零，而且用户看到的是「所有请求都卡住」。</p>
+  <p><code>full_sequence_must_fit=True</code> 的作用就是在这里：先算整条序列需要多少块，装不下就不接，让请求在 waiting 里排队，而不是接进来互相踩踏。</p>
+</details>
+
+<h2><span class="num">9</span>练习 B · 闭卷测验</h2>
+
+<div class="quiz" data-quiz="vllm-sched"></div>
+
+<h2><span class="num">10</span>面试复述卡</h2>
+
+<p><strong>「vLLM 怎么决定这一轮跑哪些请求？」</strong></p>
+
+<details>
+  <summary>展开：30 秒版本</summary>
+  <p>「它维护一个 token 预算，先遍历 running 队列，给每条请求分配它「还差多少 token」；预算用完或显存不够就停。然后遍历 waiting 队列，用剩下的预算接纳新请求，同样是按块分配、按需切块。显存不够时从 running 尾部抢占——最新的请求先牺牲——释放它的块、清零已算 token 数、放回 waiting 队首。被抢占的请求之后要重新 prefill，除非前缀缓存还能命中一部分。」</p>
+</details>
+
+<div class="ask-teacher">
+  <p><strong>可以问</strong>：「为什么 vLLM 不再支持 swap 抢占？」——v1 的设计取舍，值得单独聊十分钟，涉及 CPU 显存带宽和 PCIe 的现实。</p>
+</div>
+
+<footer class="lesson-footer">
+  <h3>主源与延伸</h3>
+  <ul>
+    <li><strong>主源</strong>：<code>scheduler.py</code> L706–830（调度主循环）+ L1841–1886（抢占）。</li>
+    <li><strong>主源</strong>：<code>kv_cache_manager.py</code> L266–328（前缀查找）、L379–395（分配）。</li>
+    <li>术语：<a href="../reference/glossary.html#memory">Prefix caching / ref_count</a>。</li>
+    <li>下一课：<strong>10 · 执行层</strong>——Worker 里到底发生了什么，CUDA Graph 有哪三种模式。</li>
+  </ul>
+</footer>
+
+</div>
+<script src="../assets/quiz.js?v=2"></script>
+<script>
+CourseQuiz.mount('[data-quiz="vllm-sched"]', {
+  questions: [
+    {
+      q: 'vLLM 调度器先遍历 running 队列，主要是为了：',
+      options: [
+        '保护已投入的计算、降低抢占',
+        '让新请求更快拿到首 token',
+        '减少前缀缓存的哈希计算',
+        '避免使用 CUDA Graph'
+      ],
+      answer: 0,
+      why: ' 抢占会丢弃已生成的 KV 并要求重算；先保证在跑的请求推进，能把抢占率压到最低。'
+    },
+    {
+      q: '默认策略下，被抢占的是：',
+      options: [
+        'running 队列的最后一条',
+        'running 队列的第一条',
+        'waiting 队列里最短的一条',
+        '显存占用最大的一条'
+      ],
+      answer: 0,
+      why: ' `self.running[-1]`：最后进来的序列，KV 最短、重算代价最小；优先级策略则按 priority + 到达时间选。'
+    },
+    {
+      q: '即使整段 prompt 都命中前缀缓存，也必须重算最后一个 token，因为：',
+      options: [
+        '需要它的 logits 来采样',
+        '它的 KV 一定没被缓存',
+        '哈希链需要它来校验',
+        '块表需要它来定位'
+      ],
+      answer: 0,
+      why: ' 采样依赖最后一个位置的输出；所以 `max_cache_hit_length` 被限制在 prompt_len - 1。'
+    },
+    {
+      q: 'vLLM 的空闲块队列用双向链表而不是 deque，是因为：',
+      options: [
+        '需要 O(1) 地从中间摘除块',
+        'deque 不支持多线程',
+        '链表占用显存更少',
+        '便于按块大小排序'
+      ],
+      answer: 0,
+      why: ' 前缀缓存命中、请求释放都会让块散落在队列中间；双向链表能在 O(1) 内摘除并保持 LRU 顺序。'
+    },
+    {
+      q: '`allocate_slots` 的 `full_sequence_must_fit` 解决的是：',
+      options: [
+        '分块准入导致的显存超卖',
+        '投机解码的 draft 越界',
+        '多模态输入的编码问题',
+        '跨节点 KV 传输失败'
+      ],
+      answer: 0,
+      why: ' 只检查第一个 chunk 会让大量请求被接进来却跑不完；这个开关要求整条序列能装下才准入。'
+    }
+  ]
+});
+</script>
+<script src="../assets/highlight.js?v=2"></script>
+<script src="../assets/lesson-ui.js?v=2"></script>
+</body>
+</html>
